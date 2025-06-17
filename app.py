@@ -6,6 +6,17 @@ from vector import process_csv_file
 import base64
 import uuid
 from typing import Dict, List, Any
+import time
+
+# LangChain imports
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.documents import Document
+from langchain_community.vectorstores import Chroma
+from langchain_ollama import OllamaEmbeddings
+from langchain_ollama.chat_models import ChatOllama
+from langchain.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain.retrievers.multi_query import MultiQueryRetriever
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -99,6 +110,83 @@ def display_pdf(pdf_base64, pdf_name):
     pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_base64}" width="100%" height="600" type="application/pdf"></iframe>'
     st.markdown(pdf_display, unsafe_allow_html=True)
 
+def setup_rag_chain(text_content: str, collection_name: str):
+    """Set up RAG chain for text processing"""
+    try:
+        # Create document from text
+        doc = Document(
+            page_content=text_content,
+            metadata={"source": "direct_text_input"}
+        )
+        
+        # Create embeddings
+        embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        
+        # Create vector store
+        vector_store = Chroma.from_documents(
+            documents=[doc],
+            embedding=embeddings,
+            collection_name=collection_name
+        )
+        
+        # Set up LLM
+        llm = ChatOllama(model="llama3:8b", temperature=0.1)
+        
+        # Enhanced query prompt template
+        QUERY_PROMPT = ChatPromptTemplate.from_template("""You are an AI language model assistant. Your task is to generate 2-3
+        different versions of the given user question to retrieve relevant documents from
+        a vector database. By generating multiple perspectives on the user question, your
+        goal is to help the user overcome some of the limitations of the distance-based
+        similarity search. Provide these alternative questions separated by newlines.
+        
+        Original question: {question}
+        
+        Generate variations that:
+        1. Use different keywords or synonyms
+        2. Approach the topic from different angles
+        3. Consider broader or more specific contexts
+        """)
+        
+        # Set up retriever
+        retriever = MultiQueryRetriever.from_llm(
+            vector_store.as_retriever(search_kwargs={"k": 5}),
+            llm,
+            prompt=QUERY_PROMPT
+        )
+        
+        # Enhanced RAG prompt template
+        template = """You are a helpful AI assistant that answers questions based on the provided context.
+
+        Instructions:
+        1. Answer the question based ONLY on the following context
+        2. If the context doesn't contain enough information to answer the question, say so clearly
+        3. Provide specific details and examples when available in the context
+        4. Be concise but comprehensive in your response
+        5. If you find relevant information, cite it appropriately
+
+        Context:
+        {context}
+
+        Question: {question}
+
+        Answer:"""
+
+        prompt = ChatPromptTemplate.from_template(template)
+        
+        # Create chain
+        chain = (
+            {"context": retriever, "question": RunnablePassthrough()}
+            | prompt
+            | llm
+            | StrOutputParser()
+        )
+        
+        return chain, vector_store, True, "RAG chain setup successfully"
+        
+    except Exception as e:
+        logging.error(f"Error setting up RAG chain: {str(e)}")
+        return None, None, False, str(e)
+
 def create_file_chat_interface(file_info: Dict, messages_key: str, file_key: str):
     """Create chat interface for a specific file"""
     
@@ -131,6 +219,8 @@ def create_file_chat_interface(file_info: Dict, messages_key: str, file_key: str
                     st.dataframe(df, height=600)
                 except Exception as e:
                     st.error(f"Error displaying CSV: {str(e)}")
+            elif file_info['type'] == 'text':
+                st.text_area("Text Content", file_info['content'], height=600, disabled=True)
     
     # Right column - Chat Interface
     with col2:
@@ -158,6 +248,10 @@ def create_file_chat_interface(file_info: Dict, messages_key: str, file_key: str
                         st.success(f"{file_info['type'].upper()} processed successfully! You can now ask questions.")
                     else:
                         st.error(message)
+                elif file_info['type'] == 'text':
+                    # Text is already processed when added
+                    st.success(f"{file_info['type'].upper()} processed successfully! You can now ask questions.")
+                    file_info['processed'] = True
         
         # Chat Interface
         if file_info.get('processed', False):
@@ -193,6 +287,18 @@ def create_file_chat_interface(file_info: Dict, messages_key: str, file_key: str
                                 st.session_state[messages_key].append({"role": "assistant", "content": response})
                             else:
                                 st.error(response)
+                        elif file_info['type'] == 'text':
+                            try:
+                                start_time = time.time()
+                                response = file_info['chain'].invoke(prompt)
+                                end_time = time.time()
+                                processing_time = round(end_time - start_time, 2)
+                                
+                                status.update(label=f"Response generated in {processing_time} seconds", state="complete")
+                                st.markdown(response)
+                                st.session_state[messages_key].append({"role": "assistant", "content": response})
+                            except Exception as e:
+                                st.error(f"Error generating response: {str(e)}")
                         elif file_info['type'] == 'csv':
                             try:
                                 docs = file_info['retriever'].get_relevant_documents(prompt)
@@ -400,107 +506,209 @@ if 'csv_files' not in st.session_state:
 # Main title
 st.title("📚 Multi-Document Chat Assistant")
 
+# Text input section
+st.markdown("## 📝 Add Text Directly")
+text_input_expander = st.expander("Click to add text directly", expanded=False)
+
+with text_input_expander:
+    user_text = st.text_area(
+        "Enter your text here",
+        height=200,
+        help="Type or paste your text here. You can add multiple paragraphs."
+    )
+    
+    if st.button("Submit Text", type="primary"):
+        if user_text.strip():
+            # Generate unique key for this text
+            text_key = f"text_{len(st.session_state.get('text_files', {})) + 1}"
+            
+            # Initialize text files storage if not exists
+            if 'text_files' not in st.session_state:
+                st.session_state.text_files = {}
+            
+            # Create text info dictionary
+            text_info = {
+                'type': 'text',
+                'name': f"Text Document {len(st.session_state.text_files) + 1}",
+                'content': user_text,
+                'tab_name': f"TEXT({len(st.session_state.text_files) + 1})",
+                'processed': True
+            }
+            
+            # Process the text
+            with st.spinner("Processing text..."):
+                try:
+                    # Set up RAG chain
+                    chain, vector_store, success, message = setup_rag_chain(
+                        user_text,
+                        f"text_{text_key}"
+                    )
+                    
+                    if success:
+                        text_info['chain'] = chain
+                        text_info['vector_store'] = vector_store
+                        st.session_state.text_files[text_key] = text_info
+                        st.success("Text processed successfully! You can now ask questions.")
+                        st.rerun()
+                    else:
+                        st.error(f"Error processing text: {message}")
+                        
+                except Exception as e:
+                    st.error(f"Error processing text: {str(e)}")
+        else:
+            st.warning("Please enter some text before submitting.")
+
 # File upload section
 st.markdown("## 📁 Upload Your Files")
-col1, col2 = st.columns(2)
 
-with col1:
-    uploaded_pdf = st.file_uploader("Upload PDF files", type=['pdf'], key="pdf_uploader", help="Upload PDF files for analysis")
+# Single file uploader for all supported types
+uploaded_file = st.file_uploader(
+    "Upload your files",
+    type=['pdf', 'csv'],
+    help="Upload PDF or CSV files for analysis"
+)
 
-with col2:
-    uploaded_csv = st.file_uploader("Upload CSV files", type=['csv'], key="csv_uploader", help="Upload CSV files for analysis")
-
-# Process uploaded PDF
-if uploaded_pdf is not None:
-    # Generate unique key for this PDF
-    pdf_key = f"pdf_{len(st.session_state.pdf_files) + 1}"
+def detect_file_type(file):
+    """Detect file type based on file extension and content"""
+    if file is None:
+        return None
     
-    # Check if this file is already processed
-    file_exists = False
-    for key, info in st.session_state.pdf_files.items():
-        if info['name'] == uploaded_pdf.name and info['size'] == uploaded_pdf.size:
-            file_exists = True
-            break
+    # Get file extension
+    file_extension = file.name.lower().split('.')[-1]
     
-    if not file_exists:
-        # Improved tab naming logic
-        existing_tabs = [info['tab_name'] for info in st.session_state.pdf_files.values()]
-        if "PDF" not in existing_tabs:
-            tab_name = "PDF"
-        else:
-            # Find the next available number
-            numbers = [int(name.split("(")[1].split(")")[0]) for name in existing_tabs if "(" in name]
-            next_num = max(numbers) + 1 if numbers else 2
-            tab_name = f"PDF({next_num})"
+    # Check file extension
+    if file_extension == 'pdf':
+        return 'pdf'
+    elif file_extension == 'csv':
+        return 'csv'
+    else:
+        return None
+
+# Process uploaded file
+if uploaded_file is not None:
+    file_type = detect_file_type(uploaded_file)
+    
+    if file_type is None:
+        st.error("Unsupported file type. Please upload a PDF or CSV file.")
+    else:
+        # Generate unique key for this file
+        file_key = f"{file_type}_{len(st.session_state.get(f'{file_type}_files', {})) + 1}"
         
-        st.session_state.pdf_files[pdf_key] = {
-            'file': uploaded_pdf,
-            'type': 'pdf',
-            'name': uploaded_pdf.name,
-            'size': uploaded_pdf.size,
-            'tab_name': tab_name,
-            'processor': PDFChatModel(),
-            'processed': False
-        }
-
-# Process uploaded CSV
-if uploaded_csv is not None:
-    # Generate unique key for this CSV
-    csv_key = f"csv_{len(st.session_state.csv_files) + 1}"
-    
-    # Check if this file is already processed
-    file_exists = False
-    for key, info in st.session_state.csv_files.items():
-        if info['name'] == uploaded_csv.name and info['size'] == uploaded_csv.size:
-            file_exists = True
-            break
-    
-    if not file_exists:
-        # Improved tab naming logic
-        existing_tabs = [info['tab_name'] for info in st.session_state.csv_files.values()]
-        if "CSV" not in existing_tabs:
-            tab_name = "CSV"
-        else:
-            # Find the next available number
-            numbers = [int(name.split("(")[1].split(")")[0]) for name in existing_tabs if "(" in name]
-            next_num = max(numbers) + 1 if numbers else 2
-            tab_name = f"CSV({next_num})"
+        # Initialize file type storage if not exists
+        if f'{file_type}_files' not in st.session_state:
+            st.session_state[f'{file_type}_files'] = {}
         
-        st.session_state.csv_files[csv_key] = {
-            'file': uploaded_csv,
-            'type': 'csv',
-            'name': uploaded_csv.name,
-            'size': uploaded_csv.size,
-            'tab_name': tab_name,
-            'retriever': None,
-            'processed': False
-        }
+        # Check if this file is already processed
+        file_exists = False
+        for key, info in st.session_state[f'{file_type}_files'].items():
+            if info['name'] == uploaded_file.name and info['size'] == uploaded_file.size:
+                file_exists = True
+                break
+        
+        if not file_exists:
+            # Improved tab naming logic
+            existing_tabs = [info['tab_name'] for info in st.session_state[f'{file_type}_files'].values()]
+            if file_type.upper() not in existing_tabs:
+                tab_name = file_type.upper()
+            else:
+                # Find the next available number
+                numbers = [int(name.split("(")[1].split(")")[0]) for name in existing_tabs if "(" in name]
+                next_num = max(numbers) + 1 if numbers else 2
+                tab_name = f"{file_type.upper()}({next_num})"
+            
+            # Create file info dictionary
+            file_info = {
+                'file': uploaded_file,
+                'type': file_type,
+                'name': uploaded_file.name,
+                'size': uploaded_file.size,
+                'tab_name': tab_name,
+                'processed': False
+            }
+            
+            # Add processor based on file type
+            if file_type == 'pdf':
+                file_info['processor'] = PDFChatModel()
+            elif file_type == 'csv':
+                file_info['retriever'] = None
+            
+            st.session_state[f'{file_type}_files'][file_key] = file_info
+
+# Display uploaded files with remove buttons
+if st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.session_state.get('text_files'):
+    st.markdown("### Uploaded Files")
+    
+    # Display Text files
+    if st.session_state.get('text_files'):
+        st.markdown("#### Text Files")
+        for file_key, file_info in list(st.session_state['text_files'].items()):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.markdown(f"📝 {file_info['name']}")
+            with col2:
+                if st.button("🗑️ Remove", key=f"remove_{file_key}"):
+                    del st.session_state['text_files'][file_key]
+                    st.rerun()
+    
+    # Display PDF files
+    if st.session_state.get('pdf_files'):
+        st.markdown("#### PDF Files")
+        for file_key, file_info in list(st.session_state['pdf_files'].items()):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.markdown(f"📄 {file_info['name']}")
+            with col2:
+                if st.button("🗑️ Remove", key=f"remove_{file_key}"):
+                    del st.session_state['pdf_files'][file_key]
+                    st.rerun()
+    
+    # Display CSV files
+    if st.session_state.get('csv_files'):
+        st.markdown("#### CSV Files")
+        for file_key, file_info in list(st.session_state['csv_files'].items()):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.markdown(f"📊 {file_info['name']}")
+            with col2:
+                if st.button("🗑️ Remove", key=f"remove_{file_key}"):
+                    del st.session_state['csv_files'][file_key]
+                    st.rerun()
 
 # Create dynamic tabs
-if st.session_state.pdf_files or st.session_state.csv_files:
+if st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.session_state.get('text_files'):
     # Prepare tab names and content
     tab_names = []
     tab_content = []
     
     # Add PDF tabs
-    for pdf_key, pdf_info in st.session_state.pdf_files.items():
+    for pdf_key, pdf_info in st.session_state.get('pdf_files', {}).items():
         tab_names.append(f"📄 {pdf_info['tab_name']}")
         tab_content.append(('pdf_individual', pdf_key, pdf_info))
     
     # Add PDF Mix Analysis tab if more than one PDF
-    if len(st.session_state.pdf_files) > 1:
+    if len(st.session_state.get('pdf_files', {})) > 1:
         tab_names.append("🔍 PDF Mix Analysis")
         tab_content.append(('pdf_mix', None, None))
     
     # Add CSV tabs
-    for csv_key, csv_info in st.session_state.csv_files.items():
+    for csv_key, csv_info in st.session_state.get('csv_files', {}).items():
         tab_names.append(f"📊 {csv_info['tab_name']}")
         tab_content.append(('csv_individual', csv_key, csv_info))
     
     # Add CSV Mix Analysis tab if more than one CSV
-    if len(st.session_state.csv_files) > 1:
+    if len(st.session_state.get('csv_files', {})) > 1:
         tab_names.append("🔍 CSV Mix Analysis")
         tab_content.append(('csv_mix', None, None))
+    
+    # Add Text tabs
+    for text_key, text_info in st.session_state.get('text_files', {}).items():
+        tab_names.append(f"📝 {text_info['tab_name']}")
+        tab_content.append(('text_individual', text_key, text_info))
+    
+    # Add Text Mix Analysis tab if more than one text
+    if len(st.session_state.get('text_files', {})) > 1:
+        tab_names.append("🔍 Text Mix Analysis")
+        tab_content.append(('text_mix', None, None))
     
     # Create tabs
     tabs = st.tabs(tab_names)
@@ -518,16 +726,25 @@ if st.session_state.pdf_files or st.session_state.csv_files:
                 messages_key = f"messages_csv_{file_key}"
                 create_file_chat_interface(file_info, messages_key, file_key)
             
+            elif tab_type == 'text_individual':
+                st.markdown(f"## 📝 {file_info['tab_name']} - {file_info['name']}")
+                messages_key = f"messages_text_{file_key}"
+                create_file_chat_interface(file_info, messages_key, file_key)
+            
             elif tab_type == 'pdf_mix':
-                pdf_files_list = list(st.session_state.pdf_files.items())
+                pdf_files_list = list(st.session_state.get('pdf_files', {}).items())
                 create_mix_analysis_interface('pdf', pdf_files_list)
             
             elif tab_type == 'csv_mix':
-                csv_files_list = list(st.session_state.csv_files.items())
+                csv_files_list = list(st.session_state.get('csv_files', {}).items())
                 create_mix_analysis_interface('csv', csv_files_list)
+            
+            elif tab_type == 'text_mix':
+                text_files_list = list(st.session_state.get('text_files', {}).items())
+                create_mix_analysis_interface('text', text_files_list)
 
 else:
-    st.info("👆 Please upload your PDF or CSV files to get started!")
+    st.info("👆 Please add text or upload your files to get started!")
 
 # Add footer
 st.markdown("---")
