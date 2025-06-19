@@ -3,6 +3,7 @@ import warnings
 import logging
 from model import PDFChatModel
 from vector import process_csv_file
+from gpt_chatbot import gpt_chatbot
 import base64
 import uuid
 from typing import Dict, List, Any
@@ -497,6 +498,71 @@ def create_mix_analysis_interface(file_type: str, files_list: List):
     else:
         st.info(f"Please select at least one {file_type.upper()} file to start analysis.")
 
+def create_gpt_chat_interface():
+    """Create GPT Chat Assistant interface"""
+    st.markdown("## 🤖 GPT Chat Assistant")
+    st.markdown("Ask me anything! I'm here to help with general questions and conversations.")
+    
+    # Initialize GPT chat messages if not exists
+    if 'gpt_messages' not in st.session_state:
+        st.session_state.gpt_messages = []
+    
+    # Add clear chat button
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("🗑️ Clear Chat", type="secondary"):
+            st.session_state.gpt_messages = []
+            gpt_chatbot.clear_history()
+            st.rerun()
+    
+    with col2:
+        # Show chatbot status
+        if gpt_chatbot.is_ready():
+            st.success("✅ GPT ChatBot is ready!")
+        else:
+            st.error("❌ GPT ChatBot is not ready. Please check the model installation.")
+    
+    # Create a container for chat history
+    chat_container = st.container()
+    with chat_container:
+        # Display chat history
+        for message in st.session_state.gpt_messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+                if "processing_time" in message:
+                    st.caption(f"Response time: {message['processing_time']} seconds")
+
+    # Chat input
+    if prompt := st.chat_input("Ask me anything...", key="gpt_chat_input"):
+        # Add user message to chat history
+        st.session_state.gpt_messages.append({"role": "user", "content": prompt})
+        
+        # Display user message
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Get AI response
+        with st.chat_message("assistant"):
+            with st.status("Thinking...", expanded=True) as status:
+                try:
+                    response, processing_time = gpt_chatbot.invoke(prompt)
+                    
+                    if response.startswith("Error:"):
+                        status.update(label="Error occurred", state="error")
+                        st.error(response)
+                    else:
+                        status.update(label=f"Response generated in {processing_time} seconds", state="complete")
+                        st.markdown(response)
+                        st.session_state.gpt_messages.append({
+                            "role": "assistant", 
+                            "content": response,
+                            "processing_time": processing_time
+                        })
+                        
+                except Exception as e:
+                    status.update(label="Error occurred", state="error")
+                    st.error(f"Error generating response: {str(e)}")
+
 # Initialize session state
 if 'pdf_files' not in st.session_state:
     st.session_state.pdf_files = {}
@@ -675,11 +741,12 @@ if st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.
                     st.rerun()
 
 # Create dynamic tabs
+# Always include GPT Chat Assistant tab
+tab_names = ["🤖 GPT Chat Assistant"]
+tab_content = [('gpt_chat', None, None)]
+
+# Add file-specific tabs if files exist
 if st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.session_state.get('text_files'):
-    # Prepare tab names and content
-    tab_names = []
-    tab_content = []
-    
     # Add PDF tabs
     for pdf_key, pdf_info in st.session_state.get('pdf_files', {}).items():
         tab_names.append(f"📄 {pdf_info['tab_name']}")
@@ -709,46 +776,51 @@ if st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.
     if len(st.session_state.get('text_files', {})) > 1:
         tab_names.append("🔍 Text Mix Analysis")
         tab_content.append(('text_mix', None, None))
-    
-    # Create tabs
-    tabs = st.tabs(tab_names)
-    
-    # Populate tabs
-    for i, (tab_type, file_key, file_info) in enumerate(tab_content):
-        with tabs[i]:
-            if tab_type == 'pdf_individual':
-                st.markdown(f"## 📄 {file_info['tab_name']} - {file_info['name']}")
-                messages_key = f"messages_pdf_{file_key}"
-                create_file_chat_interface(file_info, messages_key, file_key)
-            
-            elif tab_type == 'csv_individual':
-                st.markdown(f"## 📊 {file_info['tab_name']} - {file_info['name']}")
-                messages_key = f"messages_csv_{file_key}"
-                create_file_chat_interface(file_info, messages_key, file_key)
-            
-            elif tab_type == 'text_individual':
-                st.markdown(f"## 📝 {file_info['tab_name']} - {file_info['name']}")
-                messages_key = f"messages_text_{file_key}"
-                create_file_chat_interface(file_info, messages_key, file_key)
-            
-            elif tab_type == 'pdf_mix':
-                pdf_files_list = list(st.session_state.get('pdf_files', {}).items())
-                create_mix_analysis_interface('pdf', pdf_files_list)
-            
-            elif tab_type == 'csv_mix':
-                csv_files_list = list(st.session_state.get('csv_files', {}).items())
-                create_mix_analysis_interface('csv', csv_files_list)
-            
-            elif tab_type == 'text_mix':
-                text_files_list = list(st.session_state.get('text_files', {}).items())
-                create_mix_analysis_interface('text', text_files_list)
 
-else:
-    st.info("👆 Please add text or upload your files to get started!")
+# Create tabs
+tabs = st.tabs(tab_names)
+
+# Populate tabs
+for i, (tab_type, file_key, file_info) in enumerate(tab_content):
+    with tabs[i]:
+        if tab_type == 'gpt_chat':
+            create_gpt_chat_interface()
+        
+        elif tab_type == 'pdf_individual':
+            st.markdown(f"## 📄 {file_info['tab_name']} - {file_info['name']}")
+            messages_key = f"messages_pdf_{file_key}"
+            create_file_chat_interface(file_info, messages_key, file_key)
+        
+        elif tab_type == 'csv_individual':
+            st.markdown(f"## 📊 {file_info['tab_name']} - {file_info['name']}")
+            messages_key = f"messages_csv_{file_key}"
+            create_file_chat_interface(file_info, messages_key, file_key)
+        
+        elif tab_type == 'text_individual':
+            st.markdown(f"## 📝 {file_info['tab_name']} - {file_info['name']}")
+            messages_key = f"messages_text_{file_key}"
+            create_file_chat_interface(file_info, messages_key, file_key)
+        
+        elif tab_type == 'pdf_mix':
+            pdf_files_list = list(st.session_state.get('pdf_files', {}).items())
+            create_mix_analysis_interface('pdf', pdf_files_list)
+        
+        elif tab_type == 'csv_mix':
+            csv_files_list = list(st.session_state.get('csv_files', {}).items())
+            create_mix_analysis_interface('csv', csv_files_list)
+        
+        elif tab_type == 'text_mix':
+            text_files_list = list(st.session_state.get('text_files', {}).items())
+            create_mix_analysis_interface('text', text_files_list)
+
+# Show file upload info if no files
+if not (st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.session_state.get('text_files')):
+    st.info("👆 Upload files in the tabs above to analyze them, or use the GPT Chat Assistant for general questions!")
 
 # Add footer
 st.markdown("---")
 st.markdown("💡 **Tips:**")
+st.markdown("- Use the **🤖 GPT Chat Assistant** tab for general questions and conversations")
 st.markdown("- Upload multiple files to create individual chat sessions for each file")
 st.markdown("- Mix Analysis tabs appear when you have 2+ files of the same type")
 st.markdown("- Each file maintains its own separate chat history")
