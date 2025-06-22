@@ -121,7 +121,10 @@ def setup_rag_chain(text_content: str, collection_name: str):
         )
         
         # Create embeddings
-        embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        try:
+            embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        except Exception as e:
+            st.error("Embedding model failed. Make sure Ollama is running and model is pulled.")
         
         # Create vector store
         vector_store = Chroma.from_documents(
@@ -155,6 +158,7 @@ def setup_rag_chain(text_content: str, collection_name: str):
             prompt=QUERY_PROMPT
         )
         
+
         # Enhanced RAG prompt template
         template = """You are a helpful AI assistant that answers questions based on the provided context.
 
@@ -369,8 +373,7 @@ def create_mix_analysis_interface(file_type: str, files_list: List):
                         st.session_state[selected_key].remove(file_key)
                     else:
                         st.session_state[selected_key].append(file_key)
-                    st.rerun()
-    
+                   
     # Display selected files with improved styling
     if st.session_state[selected_key]:
         st.markdown("### Selected Files:")
@@ -512,8 +515,7 @@ def create_gpt_chat_interface():
     with col1:
         if st.button("🗑️ Clear Chat", type="secondary"):
             st.session_state.gpt_messages = []
-            gpt_chatbot.clear_history()
-            st.rerun()
+            gpt_chatbot.clear_history()   
     
     with col2:
         # Show chatbot status
@@ -615,7 +617,7 @@ with text_input_expander:
                         text_info['vector_store'] = vector_store
                         st.session_state.text_files[text_key] = text_info
                         st.success("Text processed successfully! You can now ask questions.")
-                        st.rerun()
+                        
                     else:
                         st.error(f"Error processing text: {message}")
                         
@@ -714,7 +716,7 @@ if st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.
             with col2:
                 if st.button("🗑️ Remove", key=f"remove_{file_key}"):
                     del st.session_state['text_files'][file_key]
-                    st.rerun()
+                
     
     # Display PDF files
     if st.session_state.get('pdf_files'):
@@ -725,8 +727,7 @@ if st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.
                 st.markdown(f"📄 {file_info['name']}")
             with col2:
                 if st.button("🗑️ Remove", key=f"remove_{file_key}"):
-                    del st.session_state['pdf_files'][file_key]
-                    st.rerun()
+                    del st.session_state['pdf_files'][file_key]        
     
     # Display CSV files
     if st.session_state.get('csv_files'):
@@ -737,8 +738,7 @@ if st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.
                 st.markdown(f"📊 {file_info['name']}")
             with col2:
                 if st.button("🗑️ Remove", key=f"remove_{file_key}"):
-                    del st.session_state['csv_files'][file_key]
-                    st.rerun()
+                    del st.session_state['csv_files'][file_key]                
 
 # Create dynamic tabs
 # Always include GPT Chat Assistant tab

@@ -19,6 +19,11 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Literal, cast, overload
 
 from streamlit.elements.lib.form_utils import current_form_id
+from streamlit.elements.lib.layout_utils import (
+    LayoutConfig,
+    WidthWithoutContent,
+    validate_width,
+)
 from streamlit.elements.lib.policies import (
     check_widget_policies,
     maybe_raise_label_warnings,
@@ -54,7 +59,7 @@ if TYPE_CHECKING:
 class TextInputSerde:
     value: str | None
 
-    def deserialize(self, ui_value: str | None, widget_id: str = "") -> str | None:
+    def deserialize(self, ui_value: str | None) -> str | None:
         return ui_value if ui_value is not None else self.value
 
     def serialize(self, v: str | None) -> str | None:
@@ -65,7 +70,7 @@ class TextInputSerde:
 class TextAreaSerde:
     value: str | None
 
-    def deserialize(self, ui_value: str | None, widget_id: str = "") -> str | None:
+    def deserialize(self, ui_value: str | None) -> str | None:
         return ui_value if ui_value is not None else self.value
 
     def serialize(self, v: str | None) -> str | None:
@@ -91,6 +96,7 @@ class TextWidgetsMixin:
         disabled: bool = False,
         label_visibility: LabelVisibility = "visible",
         icon: str | None = None,
+        width: WidthWithoutContent = "stretch",
     ) -> str:
         pass
 
@@ -112,6 +118,7 @@ class TextWidgetsMixin:
         disabled: bool = False,
         label_visibility: LabelVisibility = "visible",
         icon: str | None = None,
+        width: WidthWithoutContent = "stretch",
     ) -> str | None:
         pass
 
@@ -133,6 +140,7 @@ class TextWidgetsMixin:
         disabled: bool = False,
         label_visibility: LabelVisibility = "visible",
         icon: str | None = None,
+        width: WidthWithoutContent = "stretch",
     ) -> str | None:
         r"""Display a single-line text input widget.
 
@@ -213,7 +221,7 @@ class TextWidgetsMixin:
         label_visibility : "visible", "hidden", or "collapsed"
             The visibility of the label. The default is ``"visible"``. If this
             is ``"hidden"``, Streamlit displays an empty spacer instead of the
-            label, which can help keep the widget alligned with other widgets.
+            label, which can help keep the widget aligned with other widgets.
 
         icon : str, None
             An optional emoji or icon to display within the input field to the
@@ -232,6 +240,17 @@ class TextWidgetsMixin:
               Thumb Up icon. Find additional icons in the `Material Symbols \
               <https://fonts.google.com/icons?icon.set=Material+Symbols&icon.style=Rounded>`_
               font library.
+
+        width : "stretch" or int
+            The width of the text input widget. This can be one of the
+            following:
+
+            - ``"stretch"`` (default): The width of the widget matches the
+              width of the parent container.
+            - An integer specifying the width in pixels: The widget has a
+              fixed width. If the specified width is greater than the width of
+              the parent container, the width of the widget matches the width
+              of the parent container.
 
         Returns
         -------
@@ -267,6 +286,7 @@ class TextWidgetsMixin:
             disabled=disabled,
             label_visibility=label_visibility,
             icon=icon,
+            width=width,
             ctx=ctx,
         )
 
@@ -287,6 +307,7 @@ class TextWidgetsMixin:
         disabled: bool = False,
         label_visibility: LabelVisibility = "visible",
         icon: str | None = None,
+        width: WidthWithoutContent = "stretch",
         ctx: ScriptRunContext | None = None,
     ) -> str | None:
         key = to_key(key)
@@ -306,6 +327,7 @@ class TextWidgetsMixin:
             "text_input",
             user_key=key,
             form_id=current_form_id(self.dg),
+            dg=self.dg,
             label=label,
             value=value,
             max_chars=max_chars,
@@ -314,6 +336,7 @@ class TextWidgetsMixin:
             autocomplete=autocomplete,
             placeholder=str(placeholder),
             icon=icon,
+            width=width,
         )
 
         session_state = get_session_state().filtered_state
@@ -349,8 +372,7 @@ class TextWidgetsMixin:
             text_input_proto.type = TextInputProto.PASSWORD
         else:
             raise StreamlitAPIException(
-                "'%s' is not a valid text_input type. Valid types are 'default' and 'password'."
-                % type
+                f"'{type}' is not a valid text_input type. Valid types are 'default' and 'password'."
             )
 
         # Marshall the autocomplete param. If unspecified, this will be
@@ -377,7 +399,10 @@ class TextWidgetsMixin:
                 text_input_proto.value = widget_state.value
             text_input_proto.set_value = True
 
-        self.dg._enqueue("text_input", text_input_proto)
+        validate_width(width)
+        layout_config = LayoutConfig(width=width)
+
+        self.dg._enqueue("text_input", text_input_proto, layout_config=layout_config)
         return widget_state.value
 
     @overload
@@ -396,6 +421,7 @@ class TextWidgetsMixin:
         placeholder: str | None = None,
         disabled: bool = False,
         label_visibility: LabelVisibility = "visible",
+        width: WidthWithoutContent = "stretch",
     ) -> str:
         pass
 
@@ -415,6 +441,7 @@ class TextWidgetsMixin:
         placeholder: str | None = None,
         disabled: bool = False,
         label_visibility: LabelVisibility = "visible",
+        width: WidthWithoutContent = "stretch",
     ) -> str | None:
         pass
 
@@ -434,6 +461,7 @@ class TextWidgetsMixin:
         placeholder: str | None = None,
         disabled: bool = False,
         label_visibility: LabelVisibility = "visible",
+        width: WidthWithoutContent = "stretch",
     ) -> str | None:
         r"""Display a multi-line text input widget.
 
@@ -508,8 +536,19 @@ class TextWidgetsMixin:
         label_visibility : "visible", "hidden", or "collapsed"
             The visibility of the label. The default is ``"visible"``. If this
             is ``"hidden"``, Streamlit displays an empty spacer instead of the
-            label, which can help keep the widget alligned with other widgets.
+            label, which can help keep the widget aligned with other widgets.
             If this is ``"collapsed"``, Streamlit displays no label or spacer.
+
+        width : "stretch" or int
+            The width of the text area widget. This can be one of the
+            following:
+
+            - ``"stretch"`` (default): The width of the widget matches the
+              width of the parent container.
+            - An integer specifying the width in pixels: The widget has a
+              fixed width. If the specified width is greater than the width of
+              the parent container, the width of the widget matches the width
+              of the parent container.
 
         Returns
         -------
@@ -557,6 +596,7 @@ class TextWidgetsMixin:
             placeholder=placeholder,
             disabled=disabled,
             label_visibility=label_visibility,
+            width=width,
             ctx=ctx,
         )
 
@@ -575,6 +615,7 @@ class TextWidgetsMixin:
         placeholder: str | None = None,
         disabled: bool = False,
         label_visibility: LabelVisibility = "visible",
+        width: WidthWithoutContent = "stretch",
         ctx: ScriptRunContext | None = None,
     ) -> str | None:
         key = to_key(key)
@@ -593,12 +634,14 @@ class TextWidgetsMixin:
             "text_area",
             user_key=key,
             form_id=current_form_id(self.dg),
+            dg=self.dg,
             label=label,
             value=value,
             height=height,
             max_chars=max_chars,
             help=help,
             placeholder=str(placeholder),
+            width=width,
         )
 
         session_state = get_session_state().filtered_state
@@ -645,7 +688,10 @@ class TextWidgetsMixin:
                 text_area_proto.value = widget_state.value
             text_area_proto.set_value = True
 
-        self.dg._enqueue("text_area", text_area_proto)
+        validate_width(width)
+        layout_config = LayoutConfig(width=width)
+
+        self.dg._enqueue("text_area", text_area_proto, layout_config=layout_config)
         return widget_state.value
 
     @property

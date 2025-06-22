@@ -148,7 +148,7 @@ class PDFChatModel:
             self.logger.info("Setting up RAG chain...")
             
             # Set up LLM with error handling
-            local_model = "llama3:8b"
+            local_model = "llama3.2"  # Example model name, adjust as needed
             try:
                 llm = ChatOllama(model=local_model, temperature=0.1)
                 self.logger.info(f"LLM initialized with model: {local_model}")

@@ -29,11 +29,10 @@ from typing import (
     overload,
 )
 
-from typing_extensions import TypeAlias
+from typing_extensions import Required, TypeAlias
 
 from streamlit import type_util
 from streamlit.deprecation_util import show_deprecation_warning
-from streamlit.elements.lib.event_utils import AttributeDictionary
 from streamlit.elements.lib.form_utils import current_form_id
 from streamlit.elements.lib.policies import check_widget_policies
 from streamlit.elements.lib.streamlit_plotly_theme import (
@@ -45,6 +44,7 @@ from streamlit.proto.PlotlyChart_pb2 import PlotlyChart as PlotlyChartProto
 from streamlit.runtime.metrics_util import gather_metrics
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
 from streamlit.runtime.state import WidgetCallback, register_widget
+from streamlit.util import AttributeDictionary
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -159,10 +159,10 @@ class PlotlySelectionState(TypedDict, total=False):
 
     """
 
-    points: list[dict[str, Any]]
-    point_indices: list[int]
-    box: list[dict[str, Any]]
-    lasso: list[dict[str, Any]]
+    points: Required[list[dict[str, Any]]]
+    point_indices: Required[list[int]]
+    box: Required[list[dict[str, Any]]]
+    lasso: Required[list[dict[str, Any]]]
 
 
 class PlotlyState(TypedDict, total=False):
@@ -205,7 +205,7 @@ class PlotlyState(TypedDict, total=False):
 
     """
 
-    selection: PlotlySelectionState
+    selection: Required[PlotlySelectionState]
 
 
 @dataclass
@@ -214,7 +214,7 @@ class PlotlyChartSelectionSerde:
     selection state.
     """
 
-    def deserialize(self, ui_value: str | None, widget_id: str = "") -> PlotlyState:
+    def deserialize(self, ui_value: str | None) -> PlotlyState:
         empty_selection_state: PlotlyState = {
             "selection": {
                 "points": [],
@@ -231,7 +231,7 @@ class PlotlyChartSelectionSerde:
         )
 
         if "selection" not in selection_state:
-            selection_state = empty_selection_state
+            selection_state = empty_selection_state  # type: ignore[unreachable]
 
         return cast("PlotlyState", AttributeDictionary(selection_state))
 
@@ -257,12 +257,12 @@ def parse_selection_mode(
         )
 
     parsed_selection_modes = []
-    for selection_mode in selection_mode_set:
-        if selection_mode == "points":
+    for mode in selection_mode_set:
+        if mode == "points":
             parsed_selection_modes.append(PlotlyChartProto.SelectionMode.POINTS)
-        elif selection_mode == "lasso":
+        elif mode == "lasso":
             parsed_selection_modes.append(PlotlyChartProto.SelectionMode.LASSO)
-        elif selection_mode == "box":
+        elif mode == "box":
             parsed_selection_modes.append(PlotlyChartProto.SelectionMode.BOX)
     return set(parsed_selection_modes)
 
@@ -510,6 +510,7 @@ class PlotlyMixin:
             "plotly_chart",
             user_key=key,
             form_id=plotly_chart_proto.form_id,
+            dg=self.dg,
             plotly_spec=plotly_chart_proto.spec,
             plotly_config=plotly_chart_proto.config,
             selection_mode=selection_mode,
@@ -537,8 +538,7 @@ class PlotlyMixin:
 
             self.dg._enqueue("plotly_chart", plotly_chart_proto)
             return cast("PlotlyState", widget_state.value)
-        else:
-            return self.dg._enqueue("plotly_chart", plotly_chart_proto)
+        return self.dg._enqueue("plotly_chart", plotly_chart_proto)
 
     @property
     def dg(self) -> DeltaGenerator:

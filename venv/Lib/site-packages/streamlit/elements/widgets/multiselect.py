@@ -75,7 +75,7 @@ class MultiSelectSerde(Generic[T]):
         formatted_options: list[str],
         formatted_option_to_option_index: dict[str, int],
         default_options_indices: list[int] | None = None,
-    ):
+    ) -> None:
         """Initialize the MultiSelectSerde.
 
         We do not store an option_to_formatted_option mapping because the generic
@@ -110,17 +110,13 @@ class MultiSelectSerde(Generic[T]):
             try:
                 option_index = self.options.index(v)
                 values.append(self.formatted_options[option_index])
-            except ValueError:
+            except ValueError:  # noqa: PERF203
                 # at this point we know that v is a string, otherwise
                 # it would have been found in the options
                 values.append(cast("str", v))
         return values
 
-    def deserialize(
-        self,
-        ui_value: list[str] | None,
-        widget_id: str = "",
-    ) -> list[T | str] | list[T]:
+    def deserialize(self, ui_value: list[str] | None) -> list[T | str] | list[T]:
         if ui_value is None:
             return [self.options[i] for i in self.default_options_indices]
 
@@ -129,7 +125,7 @@ class MultiSelectSerde(Generic[T]):
             try:
                 option_index = self.formatted_options.index(v)
                 values.append(self.options[option_index])
-            except ValueError:
+            except ValueError:  # noqa: PERF203
                 values.append(v)
         return values
 
@@ -144,7 +140,7 @@ def _get_default_count(default: Sequence[Any] | Any | None) -> int:
 
 def _check_max_selections(
     selections: Sequence[Any] | Any | None, max_selections: int | None
-):
+) -> None:
     if max_selections is None:
         return
 
@@ -320,7 +316,7 @@ class MultiSelectMixin:
         label_visibility: "visible", "hidden", or "collapsed"
             The visibility of the label. The default is ``"visible"``. If this
             is ``"hidden"``, Streamlit displays an empty spacer instead of the
-            label, which can help keep the widget alligned with other widgets.
+            label, which can help keep the widget aligned with other widgets.
             If this is ``"collapsed"``, Streamlit displays no label or spacer.
 
         accept_new_options: bool
@@ -453,6 +449,7 @@ class MultiSelectMixin:
             widget_name,
             user_key=key,
             form_id=form_id,
+            dg=self.dg,
             label=label,
             options=formatted_options,
             default=default_values,

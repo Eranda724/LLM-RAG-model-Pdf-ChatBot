@@ -5,10 +5,13 @@ import os
 import pandas as pd
 import tempfile
 
-embeddings = OllamaEmbeddings(model="mxbai-embed-large")
+embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
 def process_csv_file(csv_file):
     """Process uploaded CSV file and create vector store"""
+    df = pd.read_csv(tmp_file_path)
+    if df.empty:  # Add validation
+        return None, False, "Error: CSV file is empty"
     try:
         # Create a temporary file to store the CSV
         with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp_file:
@@ -46,9 +49,11 @@ def process_csv_file(csv_file):
 
         # Create vector store
         vector_store = Chroma(
-            collection_name="csv_data",
-            embedding_function=embeddings
-        )
+            collection_name=f"csv_data_{int(time.time())}",
+            embedding_function=embeddings,
+            persist_directory="./chroma_db" 
+)
+
 
         # Add documents to vector store
         vector_store.add_documents(documents=documents, ids=ids)

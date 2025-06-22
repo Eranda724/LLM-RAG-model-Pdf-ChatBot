@@ -285,10 +285,13 @@ class CustomThemeConfig(google.protobuf.message.Message):
     FONT_SIZES_FIELD_NUMBER: builtins.int
     SKELETON_BACKGROUND_COLOR_FIELD_NUMBER: builtins.int
     BASE_RADIUS_FIELD_NUMBER: builtins.int
+    BUTTON_RADIUS_FIELD_NUMBER: builtins.int
     BORDER_COLOR_FIELD_NUMBER: builtins.int
+    DATAFRAME_BORDER_COLOR_FIELD_NUMBER: builtins.int
     SHOW_WIDGET_BORDER_FIELD_NUMBER: builtins.int
     LINK_COLOR_FIELD_NUMBER: builtins.int
     BASE_FONT_SIZE_FIELD_NUMBER: builtins.int
+    CODE_FONT_SIZE_FIELD_NUMBER: builtins.int
     SHOW_SIDEBAR_BORDER_FIELD_NUMBER: builtins.int
     SIDEBAR_FIELD_NUMBER: builtins.int
     CODE_BACKGROUND_COLOR_FIELD_NUMBER: builtins.int
@@ -309,10 +312,13 @@ class CustomThemeConfig(google.protobuf.message.Message):
     skeleton_background_color: builtins.str
     """DEPRECATED: This color is not applied anymore:"""
     base_radius: builtins.str
+    button_radius: builtins.str
     border_color: builtins.str
+    dataframe_border_color: builtins.str
     show_widget_border: builtins.bool
     link_color: builtins.str
     base_font_size: builtins.int
+    code_font_size: builtins.str
     show_sidebar_border: builtins.bool
     code_background_color: builtins.str
     @property
@@ -346,16 +352,19 @@ class CustomThemeConfig(google.protobuf.message.Message):
         font_sizes: global___FontSizes | None = ...,
         skeleton_background_color: builtins.str = ...,
         base_radius: builtins.str | None = ...,
+        button_radius: builtins.str | None = ...,
         border_color: builtins.str | None = ...,
+        dataframe_border_color: builtins.str | None = ...,
         show_widget_border: builtins.bool | None = ...,
         link_color: builtins.str | None = ...,
         base_font_size: builtins.int | None = ...,
+        code_font_size: builtins.str | None = ...,
         show_sidebar_border: builtins.bool | None = ...,
         sidebar: global___CustomThemeConfig | None = ...,
         code_background_color: builtins.str | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["_base_font_size", b"_base_font_size", "_base_radius", b"_base_radius", "_border_color", b"_border_color", "_code_background_color", b"_code_background_color", "_link_color", b"_link_color", "_show_sidebar_border", b"_show_sidebar_border", "_show_widget_border", b"_show_widget_border", "_sidebar", b"_sidebar", "base_font_size", b"base_font_size", "base_radius", b"base_radius", "border_color", b"border_color", "code_background_color", b"code_background_color", "font_sizes", b"font_sizes", "link_color", b"link_color", "radii", b"radii", "show_sidebar_border", b"show_sidebar_border", "show_widget_border", b"show_widget_border", "sidebar", b"sidebar"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing.Literal["_base_font_size", b"_base_font_size", "_base_radius", b"_base_radius", "_border_color", b"_border_color", "_code_background_color", b"_code_background_color", "_link_color", b"_link_color", "_show_sidebar_border", b"_show_sidebar_border", "_show_widget_border", b"_show_widget_border", "_sidebar", b"_sidebar", "background_color", b"background_color", "base", b"base", "base_font_size", b"base_font_size", "base_radius", b"base_radius", "body_font", b"body_font", "border_color", b"border_color", "code_background_color", b"code_background_color", "code_font", b"code_font", "font", b"font", "font_faces", b"font_faces", "font_sizes", b"font_sizes", "heading_font", b"heading_font", "link_color", b"link_color", "primary_color", b"primary_color", "radii", b"radii", "secondary_background_color", b"secondary_background_color", "show_sidebar_border", b"show_sidebar_border", "show_widget_border", b"show_widget_border", "sidebar", b"sidebar", "skeleton_background_color", b"skeleton_background_color", "text_color", b"text_color", "widget_background_color", b"widget_background_color", "widget_border_color", b"widget_border_color"]) -> None: ...
+    def HasField(self, field_name: typing.Literal["_base_font_size", b"_base_font_size", "_base_radius", b"_base_radius", "_border_color", b"_border_color", "_button_radius", b"_button_radius", "_code_background_color", b"_code_background_color", "_code_font_size", b"_code_font_size", "_dataframe_border_color", b"_dataframe_border_color", "_link_color", b"_link_color", "_show_sidebar_border", b"_show_sidebar_border", "_show_widget_border", b"_show_widget_border", "_sidebar", b"_sidebar", "base_font_size", b"base_font_size", "base_radius", b"base_radius", "border_color", b"border_color", "button_radius", b"button_radius", "code_background_color", b"code_background_color", "code_font_size", b"code_font_size", "dataframe_border_color", b"dataframe_border_color", "font_sizes", b"font_sizes", "link_color", b"link_color", "radii", b"radii", "show_sidebar_border", b"show_sidebar_border", "show_widget_border", b"show_widget_border", "sidebar", b"sidebar"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_base_font_size", b"_base_font_size", "_base_radius", b"_base_radius", "_border_color", b"_border_color", "_button_radius", b"_button_radius", "_code_background_color", b"_code_background_color", "_code_font_size", b"_code_font_size", "_dataframe_border_color", b"_dataframe_border_color", "_link_color", b"_link_color", "_show_sidebar_border", b"_show_sidebar_border", "_show_widget_border", b"_show_widget_border", "_sidebar", b"_sidebar", "background_color", b"background_color", "base", b"base", "base_font_size", b"base_font_size", "base_radius", b"base_radius", "body_font", b"body_font", "border_color", b"border_color", "button_radius", b"button_radius", "code_background_color", b"code_background_color", "code_font", b"code_font", "code_font_size", b"code_font_size", "dataframe_border_color", b"dataframe_border_color", "font", b"font", "font_faces", b"font_faces", "font_sizes", b"font_sizes", "heading_font", b"heading_font", "link_color", b"link_color", "primary_color", b"primary_color", "radii", b"radii", "secondary_background_color", b"secondary_background_color", "show_sidebar_border", b"show_sidebar_border", "show_widget_border", b"show_widget_border", "sidebar", b"sidebar", "skeleton_background_color", b"skeleton_background_color", "text_color", b"text_color", "widget_background_color", b"widget_background_color", "widget_border_color", b"widget_border_color"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing.Literal["_base_font_size", b"_base_font_size"]) -> typing.Literal["base_font_size"] | None: ...
     @typing.overload
@@ -363,7 +372,13 @@ class CustomThemeConfig(google.protobuf.message.Message):
     @typing.overload
     def WhichOneof(self, oneof_group: typing.Literal["_border_color", b"_border_color"]) -> typing.Literal["border_color"] | None: ...
     @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_button_radius", b"_button_radius"]) -> typing.Literal["button_radius"] | None: ...
+    @typing.overload
     def WhichOneof(self, oneof_group: typing.Literal["_code_background_color", b"_code_background_color"]) -> typing.Literal["code_background_color"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_code_font_size", b"_code_font_size"]) -> typing.Literal["code_font_size"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_dataframe_border_color", b"_dataframe_border_color"]) -> typing.Literal["dataframe_border_color"] | None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing.Literal["_link_color", b"_link_color"]) -> typing.Literal["link_color"] | None: ...
     @typing.overload
@@ -382,20 +397,31 @@ class FontFace(google.protobuf.message.Message):
     URL_FIELD_NUMBER: builtins.int
     FAMILY_FIELD_NUMBER: builtins.int
     WEIGHT_FIELD_NUMBER: builtins.int
+    WEIGHT_RANGE_FIELD_NUMBER: builtins.int
     STYLE_FIELD_NUMBER: builtins.int
+    UNICODE_RANGE_FIELD_NUMBER: builtins.int
     url: builtins.str
     family: builtins.str
+    """Equivalent to font-family @font-face CSS property."""
     weight: builtins.int
+    """DEPRECATED: Use weight_range instead which supports single weights & weight ranges."""
+    weight_range: builtins.str
+    """Equivalent to font-weight @font-face CSS property."""
     style: builtins.str
+    """Equivalent to font-style @font-face CSS property."""
+    unicode_range: builtins.str
+    """Equivalent to unicode-range @font-face CSS property."""
     def __init__(
         self,
         *,
         url: builtins.str = ...,
         family: builtins.str = ...,
         weight: builtins.int = ...,
+        weight_range: builtins.str = ...,
         style: builtins.str = ...,
+        unicode_range: builtins.str = ...,
     ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["family", b"family", "style", b"style", "url", b"url", "weight", b"weight"]) -> None: ...
+    def ClearField(self, field_name: typing.Literal["family", b"family", "style", b"style", "unicode_range", b"unicode_range", "url", b"url", "weight", b"weight", "weight_range", b"weight_range"]) -> None: ...
 
 global___FontFace = FontFace
 
