@@ -118,11 +118,20 @@ class PDFChatModel:
 
             # Create vector database with error handling
             try:
-                self.vector_store = Chroma.from_documents(
-                    documents=chunks,
-                    embedding=OllamaEmbeddings(model="nomic-embed-text"),
-                    collection_name="local-rag"
+                # Initialize empty vector store first
+                self.vector_store = Chroma(
+                    collection_name="local-rag",
+                    embedding_function=OllamaEmbeddings(model="nomic-embed-text"),
+                    persist_directory=tempfile.mkdtemp()
                 )
+
+# Add documents in chunks to avoid blocking
+                batch_size = 10
+                for i in range(0, len(chunks), batch_size):
+                    batch = chunks[i:i+batch_size]
+                    self.vector_store.add_documents(batch)
+                    time.sleep(0.01)  # yield to prevent frontend disconnection
+
                 self.logger.info("Vector store created successfully.")
             except Exception as e:
                 self.logger.error(f"Error creating vector store: {str(e)}")

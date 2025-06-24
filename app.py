@@ -9,6 +9,11 @@ import uuid
 from typing import Dict, List, Any
 import time
 
+# Import speech functionality modules
+from speech_to_text import create_speech_to_text_interface
+from text_to_speech import create_text_to_speech_interface
+from meeting_transcriber import create_meeting_transcriber_interface
+
 # LangChain imports
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.documents import Document
@@ -574,15 +579,23 @@ def create_file_chat_interface(file_info: Dict, messages_key: str, file_key: str
                                 st.error(f"❌ Error generating response: {str(e)}")
                         elif file_info['type'] == 'csv':
                             try:
-                                docs = file_info['retriever'].get_relevant_documents(prompt)
-                                response = "Based on the CSV data:\n\n"
-                                for doc in docs:
-                                    response += f"- {doc.page_content}\n\n"
-                                status.update(label="✅ Response generated", state="complete")
-                                st.markdown(response)
-                                st.session_state[messages_key].append({"role": "assistant", "content": response})
+                                retriever = file_info.get('retriever')
+                                if retriever is None:
+                                    response = "❌ CSV retriever not initialized. Please try processing the file again."
+                                    st.error(response)
+                                    st.session_state[messages_key].append({"role": "assistant", "content": response})
+                                else:
+                                    docs = retriever.get_relevant_documents(prompt)
+                                    response = "Based on the CSV data:\n\n"
+                                    for doc in docs:
+                                        response += f"- {doc.page_content}\n\n"
+                                    status.update(label="✅ Response generated", state="complete")
+                                    st.markdown(response)
+                                    st.session_state[messages_key].append({"role": "assistant", "content": response})
                             except Exception as e:
-                                st.error(f"❌ Error generating response: {str(e)}")
+                                error_msg = f"❌ Error generating response: {str(e)}"
+                                st.error(error_msg)
+                                st.session_state[messages_key].append({"role": "assistant", "content": error_msg})
         else:
             st.info(f"⏳ Please wait while the {file_info['type'].upper()} is being processed...")
 
@@ -696,13 +709,20 @@ def create_mix_analysis_interface(file_type: str, files_list: List):
                                     else:
                                         response += f"❌ Error getting response: {pdf_response}\n\n"
                                 elif file_info['type'] == 'csv':
-                                    docs = file_info['retriever'].get_relevant_documents(prompt)
-                                    if docs:
-                                        for doc in docs:
-                                            response += f"- {doc.page_content}\n"
-                                        response += "\n"
-                                    else:
-                                        response += "No relevant data found.\n\n"
+                                    try:
+                                        retriever = file_info.get('retriever')
+                                        if retriever is None:
+                                            response += "❌ CSV retriever not initialized. Please try processing the file again.\n\n"
+                                        else:
+                                            docs = retriever.get_relevant_documents(prompt)
+                                            if docs:
+                                                for doc in docs:
+                                                    response += f"- {doc.page_content}\n"
+                                                response += "\n"
+                                            else:
+                                                response += "No relevant data found.\n\n"
+                                    except Exception as e:
+                                        response += f"❌ Error getting response: {str(e)}\n\n"
                             
                             status.update(label="✅ Analysis complete", state="complete")
                             st.markdown(response)
@@ -852,6 +872,71 @@ def create_custom_text_interface():
                                     st.session_state[messages_key].append({"role": "assistant", "content": response})
                                 except Exception as e:
                                     st.error(f"❌ Error generating response: {str(e)}")
+
+def create_tabs_for_chat():
+    """Create tabs for chat interfaces"""
+    tab_names = ["🤖 GPT Chat Assistant"]
+    tab_content = []
+    
+    # Always add GPT chat as first tab
+    tab_content.append({
+        'type': 'gpt_chat',
+        'key': None,
+        'info': None
+    })
+    
+    if st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.session_state.get('text_files'):
+        # Individual file tabs
+        for pdf_key, pdf_info in st.session_state.get('pdf_files', {}).items():
+            tab_names.append(f"📄 {pdf_info['tab_name']}")
+            tab_content.append({
+                'type': 'pdf_individual',
+                'key': pdf_key,
+                'info': pdf_info
+            })
+        
+        for csv_key, csv_info in st.session_state.get('csv_files', {}).items():
+            tab_names.append(f"📊 {csv_info['tab_name']}")
+            tab_content.append({
+                'type': 'csv_individual',
+                'key': csv_key,
+                'info': csv_info
+            })
+        
+        for text_key, text_info in st.session_state.get('text_files', {}).items():
+            tab_names.append(f"📝 {text_info['tab_name']}")
+            tab_content.append({
+                'type': 'text_individual',
+                'key': text_key,
+                'info': text_info
+            })
+        
+        # Mix analysis tabs
+        if len(st.session_state.get('pdf_files', {})) > 1:
+            tab_names.append("🔍 PDF Mix Analysis")
+            tab_content.append({
+                'type': 'pdf_mix',
+                'key': None,
+                'info': None
+            })
+        
+        if len(st.session_state.get('csv_files', {})) > 1:
+            tab_names.append("🔍 CSV Mix Analysis")
+            tab_content.append({
+                'type': 'csv_mix',
+                'key': None,
+                'info': None
+            })
+        
+        if len(st.session_state.get('text_files', {})) > 1:
+            tab_names.append("🔍 Text Mix Analysis")
+            tab_content.append({
+                'type': 'text_mix',
+                'key': None,
+                'info': None
+            })
+    
+    return tab_names, tab_content
 
 def show_home_page():
     """Show the home page with welcome message and navigation"""
@@ -1024,53 +1109,27 @@ def show_document_chat_interface():
                         del st.session_state['csv_files'][file_key]
                         st.rerun()
     
-    # Create tabs for chat interfaces
-    tab_names = ["🤖 GPT Chat Assistant"]
-    tab_content = [('gpt_chat', None, None)]
-    
-    if st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.session_state.get('text_files'):
-        # Individual file tabs
-        for pdf_key, pdf_info in st.session_state.get('pdf_files', {}).items():
-            tab_names.append(f"📄 {pdf_info['tab_name']}")
-            tab_content.append(('pdf_individual', pdf_key, pdf_info))
-        
-        for csv_key, csv_info in st.session_state.get('csv_files', {}).items():
-            tab_names.append(f"📊 {csv_info['tab_name']}")
-            tab_content.append(('csv_individual', csv_key, csv_info))
-        
-        for text_key, text_info in st.session_state.get('text_files', {}).items():
-            tab_names.append(f"📝 {text_info['tab_name']}")
-            tab_content.append(('text_individual', text_key, text_info))
-        
-        # Mix analysis tabs
-        if len(st.session_state.get('pdf_files', {})) > 1:
-            tab_names.append("🔍 PDF Mix Analysis")
-            tab_content.append(('pdf_mix', None, None))
-        
-        if len(st.session_state.get('csv_files', {})) > 1:
-            tab_names.append("🔍 CSV Mix Analysis")
-            tab_content.append(('csv_mix', None, None))
-        
-        if len(st.session_state.get('text_files', {})) > 1:
-            tab_names.append("🔍 Text Mix Analysis")
-            tab_content.append(('text_mix', None, None))
-    
     # Create tabs
+    tab_names, tab_content = create_tabs_for_chat()
     tabs = st.tabs(tab_names)
     
-    for i, (tab_type, file_key, file_info) in enumerate(tab_content):
+    for i, tab_info in enumerate(tab_content):
         with tabs[i]:
+            tab_type = tab_info['type']
+            file_key = tab_info['key']
+            file_info = tab_info['info']
+            
             if tab_type == 'gpt_chat':
                 create_gpt_chat_interface()
-            elif tab_type == 'pdf_individual':
+            elif tab_type == 'pdf_individual' and file_info is not None:
                 st.markdown(f"## 📄 {file_info['tab_name']} - {file_info['name']}")
                 messages_key = f"messages_pdf_{file_key}"
                 create_file_chat_interface(file_info, messages_key, file_key)
-            elif tab_type == 'csv_individual':
+            elif tab_type == 'csv_individual' and file_info is not None:
                 st.markdown(f"## 📊 {file_info['tab_name']} - {file_info['name']}")
                 messages_key = f"messages_csv_{file_key}"
                 create_file_chat_interface(file_info, messages_key, file_key)
-            elif tab_type == 'text_individual':
+            elif tab_type == 'text_individual' and file_info is not None:
                 st.markdown(f"## 📝 {file_info['tab_name']} - {file_info['name']}")
                 messages_key = f"messages_text_{file_key}"
                 create_file_chat_interface(file_info, messages_key, file_key)
@@ -1136,8 +1195,19 @@ elif st.session_state.current_page == 'gpt_chat':
     st.markdown('<h2 class="section-header">🤖 GPT Chat Assistant</h2>', unsafe_allow_html=True)
     create_gpt_chat_interface()
 elif st.session_state.current_page == 'text_speech':
-    st.markdown("## 🔊 Text to Speech")
-    st.info("🚧 This section is under development. Check back soon!")
+    st.markdown('<h2 class="section-header">🔊 Text Speech Interface</h2>', unsafe_allow_html=True)
+    
+    # Create tabs for speech functionality
+    speech_tab1, speech_tab2, speech_tab3 = st.tabs(["🎤 Speech to Text", "🔊 Text to Speech", "🎙️ Meeting Transcriber"])
+    
+    with speech_tab1:
+        create_speech_to_text_interface()
+    
+    with speech_tab2:
+        create_text_to_speech_interface()
+        
+    with speech_tab3:
+        create_meeting_transcriber_interface()
 
 # Footer
 st.markdown("---")

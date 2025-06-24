@@ -4,14 +4,12 @@ from langchain_core.documents import Document
 import os
 import pandas as pd
 import tempfile
+import time
 
 embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
 def process_csv_file(csv_file):
     """Process uploaded CSV file and create vector store"""
-    df = pd.read_csv(tmp_file_path)
-    if df.empty:  # Add validation
-        return None, False, "Error: CSV file is empty"
     try:
         # Create a temporary file to store the CSV
         with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp_file:
@@ -20,6 +18,8 @@ def process_csv_file(csv_file):
 
         # Read the CSV file
         df = pd.read_csv(tmp_file_path)
+        if df.empty:  # Add validation
+            return None, False, "Error: CSV file is empty"
         
         # Create documents from CSV
         documents = []
