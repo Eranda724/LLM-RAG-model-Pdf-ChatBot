@@ -1,7 +1,6 @@
 import streamlit as st
 import librosa
 import numpy as np
-from transformers.pipelines import pipeline
 import requests
 import json
 import textwrap
@@ -9,19 +8,30 @@ import tempfile
 import os
 import time
 import uuid
+import whisper
 
 def initialize_asr():
-    """Initialize the ASR pipeline"""
-    return pipeline("automatic-speech-recognition", model="openai/whisper-small")
+    """Initialize the ASR using whisper library directly"""
+    try:
+        with st.spinner("🔄 Loading Whisper model..."):
+            whisper_model = whisper.load_model("small")
+            st.success("✅ Whisper model loaded successfully!")
+            return whisper_model
+    except Exception as e:
+        st.error(f"Error loading Whisper model: {str(e)}")
+        return None
 
-def transcribe_audio(audio_file, asr_pipeline):
+def transcribe_audio(audio_file, whisper_model):
     """Transcribe audio using Whisper"""
-    audio, sr = librosa.load(audio_file, sr=16000)
-    if len(audio) > 480000:
-        result = asr_pipeline(audio.astype(np.float32), return_timestamps=True)
-    else:
-        result = asr_pipeline(audio.astype(np.float32))
-    return result["text"]
+    try:
+        if not os.path.exists(audio_file):
+            st.error(f"Audio file does not exist: {audio_file}")
+            return "Transcription error: File not found."
+        result = whisper_model.transcribe(audio_file)
+        return result["text"]
+    except Exception as e:
+        st.error(f"Error transcribing audio: {str(e)}")
+        return f"Transcription error: {str(e)}"
 
 def summarize_with_local_model(transcript):
     """Summarize using a simple extractive summarization approach"""
@@ -97,11 +107,27 @@ def create_meeting_transcriber_interface():
     if 'meeting_asr' not in st.session_state:
         with st.spinner("🔄 Loading Whisper model..."):
             st.session_state.meeting_asr = initialize_asr()
-            st.success("✅ Whisper model loaded successfully!")
+            if st.session_state.meeting_asr is not None:
+                st.success("✅ Whisper model loaded successfully!")
+            else:
+                st.error("❌ Failed to load Whisper model. Please try refreshing the page.")
+                return
     
     if 'meeting_transcriptions' not in st.session_state:
         st.session_state.meeting_transcriptions = []
     
+    # Check if ASR is available
+    if st.session_state.meeting_asr is None:
+        st.error("❌ Speech recognition model is not available. Please refresh the page to try again.")
+        if st.button("🔄 Retry Loading Model", type="primary"):
+            st.session_state.meeting_asr = initialize_asr()
+            if st.session_state.meeting_asr is not None:
+                st.success("✅ Whisper model loaded successfully!")
+                st.rerun()
+            else:
+                st.error("❌ Failed to load model again. Please check your internet connection and try again.")
+        return
+
     # File upload section
     uploaded_audio = st.file_uploader(
         "Choose an audio file",

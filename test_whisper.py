@@ -1,107 +1,56 @@
 #!/usr/bin/env python3
 """
-Test script for Whisper installation and model loading
-Run this script to diagnose issues with Whisper
+Test script to verify Whisper model loading without meta tensor errors
 """
 
-import sys
-import os
-import tempfile
-import time
+import torch
+from transformers import pipeline
+import whisper
 
-def test_whisper_installation():
-    """Test if Whisper is properly installed"""
-    print("🔍 Testing Whisper installation...")
-    
+def test_transformers_pipeline():
+    """Test transformers pipeline approach"""
+    print("Testing transformers pipeline...")
     try:
-        import whisper
-        print(f"✅ Whisper imported successfully")
-        
-        # Check version
-        if hasattr(whisper, '__version__'):
-            print(f"📦 Whisper version: {whisper.__version__}")
-        else:
-            print("⚠️ Whisper version not available")
-        
+        # Try the simple approach first
+        asr_pipeline = pipeline("automatic-speech-recognition", model="openai/whisper-small")
+        print("✅ Transformers pipeline loaded successfully!")
         return True
-    except ImportError as e:
-        print(f"❌ Failed to import Whisper: {e}")
-        print("💡 Try installing with: pip install openai-whisper")
-        return False
     except Exception as e:
-        print(f"❌ Unexpected error importing Whisper: {e}")
+        print(f"❌ Transformers pipeline failed: {e}")
         return False
 
-def test_model_loading():
-    """Test if Whisper models can be loaded"""
-    print("\n🔍 Testing model loading...")
-    
+def test_whisper_library():
+    """Test whisper library approach"""
+    print("Testing whisper library...")
     try:
-        import whisper
-        
-        # Test with tiny model first (smallest and fastest)
-        print("📥 Loading tiny model...")
-        start_time = time.time()
-        model = whisper.load_model("tiny")
-        end_time = time.time()
-        
-        print(f"✅ Tiny model loaded successfully in {end_time - start_time:.2f} seconds")
-        
-        # Test transcription with a simple audio file if available
-        print("\n🔍 Testing transcription capability...")
-        
-        # Create a simple test
-        print("✅ Model appears to be working correctly")
-        
-        # Clean up
-        del model
+        whisper_model = whisper.load_model("small")
+        print("✅ Whisper library loaded successfully!")
         return True
-        
     except Exception as e:
-        print(f"❌ Error loading model: {e}")
-        print("\n💡 Possible solutions:")
-        print("1. Check your internet connection")
-        print("2. Ensure you have sufficient disk space")
-        print("3. Try: pip install --upgrade openai-whisper")
-        print("4. Check if you have enough RAM (at least 4GB recommended)")
+        print(f"❌ Whisper library failed: {e}")
         return False
 
-def test_system_info():
-    """Display system information"""
-    print("\n🔍 System Information:")
-    print(f"Python version: {sys.version}")
-    print(f"Platform: {sys.platform}")
-    print(f"Temp directory: {tempfile.gettempdir()}")
-    
-    # Check available disk space
+def test_device_info():
+    """Test device information"""
+    print(f"CUDA available: {torch.cuda.is_available()}")
+    print(f"PyTorch version: {torch.__version__}")
     try:
-        import shutil
-        total, used, free = shutil.disk_usage(tempfile.gettempdir())
-        print(f"Disk space - Total: {total // (1024**3)} GB, Free: {free // (1024**3)} GB")
-    except:
-        print("⚠️ Could not check disk space")
-
-def main():
-    """Main test function"""
-    print("🧪 Whisper Test Script")
-    print("=" * 50)
-    
-    # Test system info
-    test_system_info()
-    
-    # Test installation
-    if not test_whisper_installation():
-        print("\n❌ Whisper installation test failed")
-        return False
-    
-    # Test model loading
-    if not test_model_loading():
-        print("\n❌ Model loading test failed")
-        return False
-    
-    print("\n✅ All tests passed! Whisper should work correctly.")
-    return True
+        import transformers
+        print(f"Transformers version: {transformers.__version__}")
+    except ImportError:
+        print("Transformers not available")
 
 if __name__ == "__main__":
-    success = main()
-    sys.exit(0 if success else 1) 
+    print("=== Whisper Model Loading Test ===")
+    test_device_info()
+    print()
+    
+    success1 = test_transformers_pipeline()
+    print()
+    success2 = test_whisper_library()
+    print()
+    
+    if success1 or success2:
+        print("✅ At least one method works!")
+    else:
+        print("❌ Both methods failed!") 

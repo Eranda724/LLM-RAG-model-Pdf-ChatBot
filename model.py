@@ -85,6 +85,11 @@ class PDFChatModel:
             
             self.logger.info("Starting PDF processing...")
             
+            # Check file size to prevent memory issues
+            file_size = len(pdf_file.getvalue())
+            if file_size > 50 * 1024 * 1024:  # 50MB limit
+                return False, "File too large. Please upload a PDF smaller than 50MB."
+            
             # Create temporary file
             with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
                 tmp_file.write(pdf_file.getvalue())
@@ -99,9 +104,19 @@ class PDFChatModel:
                 self.logger.info(f"PDF loaded successfully. Found {len(data)} document chunks.")
             except Exception as e:
                 self.logger.error(f"Error loading PDF: {str(e)}")
+                # Clean up temp file
+                try:
+                    os.unlink(tmp_file_path)
+                except:
+                    pass
                 raise Exception(f"Failed to load PDF content: {str(e)}")
 
             if not data:
+                # Clean up temp file
+                try:
+                    os.unlink(tmp_file_path)
+                except:
+                    pass
                 raise Exception("No content could be extracted from the PDF")
 
             # Split text into chunks with optimized parameters
@@ -114,27 +129,45 @@ class PDFChatModel:
             self.logger.info(f"Text split into {len(chunks)} chunks.")
 
             if not chunks:
+                # Clean up temp file
+                try:
+                    os.unlink(tmp_file_path)
+                except:
+                    pass
                 raise Exception("No text chunks could be created from the PDF")
 
             # Create vector database with error handling
             try:
                 # Initialize empty vector store first
                 self.vector_store = Chroma(
-                    collection_name="local-rag",
+                    collection_name=f"local-rag-{int(time.time())}",
                     embedding_function=OllamaEmbeddings(model="nomic-embed-text"),
                     persist_directory=tempfile.mkdtemp()
                 )
 
-# Add documents in chunks to avoid blocking
-                batch_size = 10
+                # Add documents in smaller batches to prevent memory issues
+                batch_size = 5  # Reduced batch size
+                total_batches = (len(chunks) + batch_size - 1) // batch_size
+                
                 for i in range(0, len(chunks), batch_size):
                     batch = chunks[i:i+batch_size]
-                    self.vector_store.add_documents(batch)
-                    time.sleep(0.01)  # yield to prevent frontend disconnection
+                    try:
+                        self.vector_store.add_documents(batch)
+                        # Add longer sleep to prevent frontend disconnection
+                        time.sleep(0.1)
+                    except Exception as batch_error:
+                        self.logger.error(f"Error adding batch {i//batch_size + 1}: {str(batch_error)}")
+                        # Continue with next batch instead of failing completely
+                        continue
 
                 self.logger.info("Vector store created successfully.")
             except Exception as e:
                 self.logger.error(f"Error creating vector store: {str(e)}")
+                # Clean up temp file
+                try:
+                    os.unlink(tmp_file_path)
+                except:
+                    pass
                 raise Exception(f"Failed to create vector database: {str(e)}")
 
             # Clean up temporary file
@@ -149,6 +182,12 @@ class PDFChatModel:
             
         except Exception as e:
             self.logger.error(f"Error processing PDF: {str(e)}")
+            # Ensure cleanup on any error
+            try:
+                if 'tmp_file_path' in locals():
+                    os.unlink(tmp_file_path)
+            except:
+                pass
             return False, f"Error processing PDF: {str(e)}"
 
     def setup_rag_chain(self):

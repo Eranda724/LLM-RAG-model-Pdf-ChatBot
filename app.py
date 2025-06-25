@@ -8,11 +8,13 @@ import base64
 import uuid
 from typing import Dict, List, Any
 import time
+from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
 # Import speech functionality modules
 from speech_to_text import create_speech_to_text_interface
 from text_to_speech import create_text_to_speech_interface
 from meeting_transcriber import create_meeting_transcriber_interface
+from speech_translator import create_speech_translator_interface
 
 # LangChain imports
 from langchain_core.runnables import RunnablePassthrough
@@ -29,7 +31,7 @@ import pandas as pd
 warnings.filterwarnings('ignore')
 logging.getLogger('streamlit').setLevel(logging.ERROR)
 
-# Set page config
+# Set page config with timeout settings
 st.set_page_config(
     page_title="Multi-Document Chat Assistant",
     page_icon="📚",
@@ -37,20 +39,55 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Add timeout and memory management
+import signal
+import threading
+from contextlib import contextmanager
+
+@contextmanager
+def timeout(seconds):
+    """Context manager for timeout handling"""
+    def signal_handler(signum, frame):
+        raise TimeoutError(f"Operation timed out after {seconds} seconds")
+    
+    # Set the signal handler and a 5-second alarm
+    old_handler = signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+
 # Custom CSS for better styling and alignments
 st.markdown("""
 <style>
+    /* General container fix */
+    .container, .main-content, .sidebar, .chat-interface {
+      max-width: 80%;
+      max-height: 100vh; /* limits height to the screen */
+      box-sizing: auto;
+    }
+    /* Optional: scale down large content */
+    .pdf-preview, .file-preview, .chat-interface {
+      transform: scale(0.7); /* scale down if needed */
+      transform-origin: top left;
+    }
+    /* Add media queries for responsiveness */
+    @media (max-width: 768px) {
+      .chat-interface, .pdf-preview {
+        transform: scale(0.8);
+      }
+    }
     /* Main content styling */
     .main {
         padding: 0rem 1rem;
     }
-    
     /* Sidebar styling */
     .css-1d391kg {
         background-color: #f0f2f6;
         border-right: 2px solid #e0e0e0;
     }
-    
     /* Navigation button styling */
     .nav-button {
         width: 100%;
@@ -70,19 +107,16 @@ st.markdown("""
         align-items: center;
         gap: 10px;
     }
-    
     .nav-button:hover {
         background-color: #e3f2fd;
         transform: translateY(-2px);
         box-shadow: 0 4px 10px rgba(0,0,0,0.15);
     }
-    
     .nav-button.active {
-        background-color: #2196f3;
-        color: white;
+        background-color: #003300;
+        color: #6600cc;
         border-left: 4px solid #1976d2;
     }
-    
     /* Chat message styling */
     .stChatMessage {
         padding: 1rem;
@@ -90,19 +124,15 @@ st.markdown("""
         margin-bottom: 1rem;
         border: 1px solid #e0e0e0;
     }
-    
     .stChatMessage [data-testid="stChatMessageContent"] {
         padding: 1rem;
     }
-    
     .stStatus {
         border-radius: 0.5rem;
     }
-    
     .stSpinner {
         border-radius: 0.5rem;
     }
-    
     /* PDF container styling */
     .pdf-container {
         border: 1px solid #e0e0e0;
@@ -112,84 +142,72 @@ st.markdown("""
         height: calc(100vh - 200px);
         overflow-y: auto;
     }
-    
     /* Chat container styling */
     [data-testid="stVerticalBlock"] > div:has(> div.stChatMessage) {
         max-height: calc(100vh - 200px);
         overflow-y: auto;
         padding-right: 10px;
     }
-    
     .chat-container {
         padding-bottom: 80px;
     }
-    
     /* File selection styling */
     .file-selector {
         border: 2px solid #e0e0e0;
         border-radius: 0.5rem;
         padding: 1rem;
         margin: 0.5rem 0;
-        background-color: #f8f9fa;
+        background-color: #000066;
     }
-    
     .selected-file {
         border-color: #007bff;
-        background-color: #e7f3ff;
+        background-color: #3366cc;
     }
-    
     /* File button styling */
     .file-button {
         margin: 0.25rem;
         padding: 0.5rem 1rem;
         border: 2px solid #007bff;
         border-radius: 0.25rem;
-        background-color: white;
+        background-color: #000066;
         color: #007bff;
         cursor: pointer;
         transition: all 0.3s;
     }
-    
     .file-button:hover {
         background-color: #007bff;
-        color: white;
+        color: #000066;
     }
-    
     .file-button.selected {
         background-color: #007bff;
-        color: white;
+        color: #000066;
     }
-    
     /* Page header styling */
     .page-header {
         background: linear-gradient(90deg, #2196f3, #21cbf3);
-        color: white;
+        color: #000066;
         padding: 20px;
         border-radius: 10px;
         margin-bottom: 20px;
         text-align: center;
     }
-    
     .page-header h1 {
         margin: 0;
         font-size: 2.5em;
     }
-    
     .page-header p {
         margin: 10px 0 0 0;
         font-size: 1.2em;
         opacity: 0.9;
     }
-    
     /* Custom text input styling */
     .custom-text-container {
         border: 2px solid #e0e0e0;
         border-radius: 10px;
         padding: 20px;
         margin: 20px 0;
-        background-color: #f8f9fa;
+        background-color: #3366cc;
     }
-    
     .text-input-area {
         border: 1px solid #ddd;
         border-radius: 5px;
@@ -198,11 +216,10 @@ st.markdown("""
         font-size: 14px;
         line-height: 1.5;
     }
-    
     /* Section headers */
     .section-header {
         background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        color: white;
+        color: #0099cc;
         padding: 15px 20px;
         border-radius: 8px;
         margin: 20px 0;
@@ -210,23 +227,20 @@ st.markdown("""
         font-size: 1.5em;
         font-weight: bold;
     }
-    
     /* File upload area styling */
     .upload-area {
         border: 2px dashed #007bff;
         border-radius: 10px;
         padding: 30px;
         text-align: center;
-        background-color: #f8f9fa;
+        background-color: #336699;
         margin: 20px 0;
         transition: all 0.3s ease;
     }
-    
     .upload-area:hover {
         border-color: #0056b3;
-        background-color: #e7f3ff;
+        background-color: #336699;
     }
-    
     /* Status indicators */
     .status-success {
         background-color: #d4edda;
@@ -236,7 +250,6 @@ st.markdown("""
         border-radius: 5px;
         margin: 10px 0;
     }
-    
     .status-error {
         background-color: #f8d7da;
         border: 1px solid #f5c6cb;
@@ -245,7 +258,6 @@ st.markdown("""
         border-radius: 5px;
         margin: 10px 0;
     }
-    
     .status-info {
         background-color: #d1ecf1;
         border: 1px solid #bee5eb;
@@ -254,13 +266,11 @@ st.markdown("""
         border-radius: 5px;
         margin: 10px 0;
     }
-    
     /* Column alignment improvements */
     .stColumn {
         display: flex;
         align-items: stretch;
     }
-    
     /* Button group styling */
     .button-group {
         display: flex;
@@ -268,61 +278,53 @@ st.markdown("""
         margin: 10px 0;
         flex-wrap: wrap;
     }
-    
     /* Tab styling improvements */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
     }
-    
     .stTabs [data-baseweb="tab"] {
         height: 50px;
-        white-space: pre-wrap;
-        background-color: #f8f9fa;
+        #0099cc-space: pre-wrap;
+        background-color: #336699;
         border-radius: 8px 8px 0px 0px;
         gap: 1rem;
         padding-top: 10px;
         padding-bottom: 10px;
     }
-    
     .stTabs [aria-selected="true"] {
         background-color: #007bff;
-        color: white;
+        color: #0099cc;
     }
-    
     /* Custom text expander styling */
     .streamlit-expanderHeader {
-        background-color: #f8f9fa;
-        border: 1px solid #e0e0e0;
+        background-color: #336699;
+        border: 1px solid #336699;
         border-radius: 5px;
         padding: 10px;
         margin: 5px 0;
     }
-    
     .streamlit-expanderContent {
-        border: 1px solid #e0e0e0;
+        border: 1px solid #336699;
         border-radius: 5px;
         padding: 15px;
         margin: 5px 0;
-        background-color: white;
+        background-color: #0099cc;
     }
-    
     /* Metric styling */
     .stMetric {
-        background-color: #f8f9fa;
+        background-color: #336699;
         border-radius: 8px;
         padding: 15px;
-        border: 1px solid #e0e0e0;
+        border: 1px solid #336699;
     }
-    
     /* File uploader styling */
     .stFileUploader {
         border: 2px dashed #007bff;
         border-radius: 10px;
         padding: 20px;
         text-align: center;
-        background-color: #f8f9fa;
+        background-color: #336699;
     }
-    
     /* Text area styling */
     .stTextArea textarea {
         border: 1px solid #ddd;
@@ -332,48 +334,40 @@ st.markdown("""
         font-size: 14px;
         line-height: 1.5;
     }
-    
     /* Input styling */
     .stTextInput input {
         border: 1px solid #ddd;
         border-radius: 5px;
         padding: 8px 12px;
     }
-    
     /* Button styling improvements */
     .stButton > button {
         border-radius: 8px;
         font-weight: 500;
         transition: all 0.3s ease;
     }
-    
     .stButton > button:hover {
         transform: translateY(-1px);
         box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     }
-    
     /* Sidebar improvements */
     .css-1d391kg {
         background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
         border-right: 2px solid #dee2e6;
     }
-    
     /* Main content improvements */
     .main .block-container {
         padding-top: 2rem;
         padding-bottom: 2rem;
     }
-    
     /* Responsive improvements */
     @media (max-width: 768px) {
         .stColumn {
             flex-direction: column;
         }
-        
         .page-header h1 {
             font-size: 2em;
         }
-        
         .section-header {
             font-size: 1.2em;
         }
@@ -395,6 +389,10 @@ if 'custom_texts' not in st.session_state:
     st.session_state.custom_texts = {}
 if 'gpt_messages' not in st.session_state:
     st.session_state.gpt_messages = []
+
+# Load Whisper model and processor
+model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
+processor = WhisperProcessor.from_pretrained("openai/whisper-small")
 
 def display_pdf(pdf_base64, pdf_name):
     """Display PDF in the interface"""
@@ -911,7 +909,17 @@ def create_tabs_for_chat():
                 'info': text_info
             })
         
-        # Mix analysis tabs
+        # General Document Mix Analysis tab (appears when 2+ documents of any type)
+        total_documents = len(st.session_state.get('pdf_files', {})) + len(st.session_state.get('csv_files', {})) + len(st.session_state.get('text_files', {}))
+        if total_documents >= 2:
+            tab_names.append("🔍 Document Mix Analysis")
+            tab_content.append({
+                'type': 'general_mix',
+                'key': None,
+                'info': None
+            })
+        
+        # Type-specific mix analysis tabs (existing functionality)
         if len(st.session_state.get('pdf_files', {})) > 1:
             tab_names.append("🔍 PDF Mix Analysis")
             tab_content.append({
@@ -972,6 +980,7 @@ def show_home_page():
     2. **📝 Custom Text**: Add your own text and chat with it
     3. **🤖 GPT Assistant**: General AI conversations and help
     4. **🔍 Mix Analysis**: Compare multiple files of the same type
+    5. **🔍 Document Mix Analysis**: Cross-document analysis with any combination of file types
     """)
 
 def show_document_chat_interface():
@@ -1022,52 +1031,68 @@ def show_document_chat_interface():
     
     # Process uploaded file
     if uploaded_file is not None:
-        file_type = detect_file_type(uploaded_file)
-        if file_type is None:
-            st.error("❌ Unsupported file type. Please upload a PDF, CSV, or TXT file.")
-        else:
-            file_key = f"{file_type}_{len(st.session_state.get(f'{file_type}_files', {})) + 1}"
-            if f'{file_type}_files' not in st.session_state:
-                st.session_state[f'{file_type}_files'] = {}
-            
-            # Check if file already exists
-            file_exists = False
-            for key, info in st.session_state[f'{file_type}_files'].items():
-                if info['name'] == uploaded_file.name and info['size'] == uploaded_file.size:
-                    file_exists = True
-                    break
-            
-            if not file_exists:
-                # Generate tab name
-                existing_tabs = [info['tab_name'] for info in st.session_state[f'{file_type}_files'].values()]
-                if file_type.upper() not in existing_tabs:
-                    tab_name = file_type.upper()
+        try:
+            file_type = detect_file_type(uploaded_file)
+            if file_type is None:
+                st.error("❌ Unsupported file type. Please upload a PDF, CSV, or TXT file.")
+            else:
+                # Check file size before processing
+                file_size = len(uploaded_file.getvalue())
+                max_size = 50 * 1024 * 1024  # 50MB limit
+                if file_size > max_size:
+                    st.error(f"❌ File too large ({file_size / (1024*1024):.1f}MB). Please upload a file smaller than 50MB.")
                 else:
-                    numbers = [int(name.split("(")[1].split(")")[0]) for name in existing_tabs if "(" in name]
-                    next_num = max(numbers) + 1 if numbers else 2
-                    tab_name = f"{file_type.upper()} ({next_num})"
-                
-                # Create file info
-                file_info = {
-                    'file': uploaded_file,
-                    'type': file_type,
-                    'name': uploaded_file.name,
-                    'size': uploaded_file.size,
-                    'tab_name': tab_name,
-                    'processed': False
-                }
-                
-                if file_type == 'pdf':
-                    file_info['processor'] = PDFChatModel()
-                elif file_type == 'csv':
-                    file_info['retriever'] = None
-                elif file_type == 'text':
-                    file_info['content'] = uploaded_file.read().decode('utf-8')
-                    uploaded_file.seek(0)  # Reset file pointer
-                
-                st.session_state[f'{file_type}_files'][file_key] = file_info
-                st.success(f"✅ {uploaded_file.name} uploaded successfully!")
-                st.rerun()
+                    file_key = f"{file_type}_{len(st.session_state.get(f'{file_type}_files', {})) + 1}"
+                    if f'{file_type}_files' not in st.session_state:
+                        st.session_state[f'{file_type}_files'] = {}
+                    
+                    # Check if file already exists
+                    file_exists = False
+                    for key, info in st.session_state[f'{file_type}_files'].items():
+                        if info['name'] == uploaded_file.name and info['size'] == uploaded_file.size:
+                            file_exists = True
+                            break
+                    
+                    if not file_exists:
+                        # Generate tab name
+                        existing_tabs = [info['tab_name'] for info in st.session_state[f'{file_type}_files'].values()]
+                        if file_type.upper() not in existing_tabs:
+                            tab_name = file_type.upper()
+                        else:
+                            numbers = [int(name.split("(")[1].split(")")[0]) for name in existing_tabs if "(" in name]
+                            next_num = max(numbers) + 1 if numbers else 2
+                            tab_name = f"{file_type.upper()} ({next_num})"
+                        
+                        # Create file info
+                        file_info = {
+                            'file': uploaded_file,
+                            'type': file_type,
+                            'name': uploaded_file.name,
+                            'size': uploaded_file.size,
+                            'tab_name': tab_name,
+                            'processed': False
+                        }
+                        
+                        if file_type == 'pdf':
+                            file_info['processor'] = PDFChatModel()
+                        elif file_type == 'csv':
+                            file_info['retriever'] = None
+                        elif file_type == 'text':
+                            try:
+                                file_info['content'] = uploaded_file.read().decode('utf-8')
+                                uploaded_file.seek(0)  # Reset file pointer
+                            except UnicodeDecodeError:
+                                st.error("❌ Error reading text file. Please ensure it's encoded in UTF-8.")
+                                return
+                        
+                        st.session_state[f'{file_type}_files'][file_key] = file_info
+                        st.success(f"✅ {uploaded_file.name} uploaded successfully!")
+                        st.rerun()
+                    else:
+                        st.warning(f"⚠️ File '{uploaded_file.name}' already exists.")
+        except Exception as e:
+            st.error(f"❌ Error processing uploaded file: {str(e)}")
+            logging.error(f"File upload error: {str(e)}")
     
     # Display uploaded files
     if st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.session_state.get('text_files'):
@@ -1142,9 +1167,446 @@ def show_document_chat_interface():
             elif tab_type == 'text_mix':
                 text_files_list = list(st.session_state.get('text_files', {}).items())
                 create_mix_analysis_interface('text', text_files_list)
+            elif tab_type == 'general_mix':
+                create_general_document_mix_analysis()
     
     if not (st.session_state.get('pdf_files') or st.session_state.get('csv_files') or st.session_state.get('text_files')):
         st.info("👆 Upload files above to analyze them, or use the GPT Chat Assistant for general questions!")
+
+def create_general_document_mix_analysis():
+    """Create general document mix analysis interface for any combination of document types"""
+    st.markdown("## 🔍 Document Mix Analysis")
+    st.markdown("### Select documents for cross-document analysis")
+    
+    # Get all available documents
+    all_documents = {}
+    all_documents.update(st.session_state.get('pdf_files', {}))
+    all_documents.update(st.session_state.get('csv_files', {}))
+    all_documents.update(st.session_state.get('text_files', {}))
+    
+    if len(all_documents) < 2:
+        st.info("📋 Please upload at least 2 documents to enable mix analysis.")
+        return
+    
+    # Initialize selected documents in session state
+    if 'selected_documents_mix' not in st.session_state:
+        st.session_state.selected_documents_mix = []
+    
+    st.markdown("**Available Documents:**")
+    
+    # Document selection grid
+    with st.container():
+        cols = st.columns(min(len(all_documents), 4))
+        for idx, (file_key, file_info) in enumerate(all_documents.items()):
+            col_idx = idx % 4
+            with cols[col_idx]:
+                is_selected = file_key in st.session_state.selected_documents_mix
+                file_type_icon = "📄" if file_info['type'] == 'pdf' else "📊" if file_info['type'] == 'csv' else "📝"
+                button_label = f"{file_type_icon} {file_info['tab_name']}\n({file_info['name'][:20]}...)" if len(file_info['name']) > 20 else f"{file_type_icon} {file_info['tab_name']}\n({file_info['name']})"
+                
+                if st.button(
+                    button_label,
+                    key=f"select_doc_{file_key}_mix",
+                    help=f"Click to {'deselect' if is_selected else 'select'} {file_info['name']}",
+                    type="primary" if is_selected else "secondary"
+                ):
+                    if file_key in st.session_state.selected_documents_mix:
+                        st.session_state.selected_documents_mix.remove(file_key)
+                    else:
+                        st.session_state.selected_documents_mix.append(file_key)
+    
+    # Show selected documents
+    if st.session_state.selected_documents_mix:
+        st.markdown("### Selected Documents:")
+        selected_info = []
+        for file_key in st.session_state.selected_documents_mix:
+            file_info = all_documents[file_key]
+            file_type_icon = "📄" if file_info['type'] == 'pdf' else "📊" if file_info['type'] == 'csv' else "📝"
+            selected_info.append(f"{file_type_icon} **{file_info['tab_name']}**: {file_info['name']}")
+        st.markdown("\n".join(selected_info))
+        
+        # Process documents button
+        if st.button("🚀 Process Selected Documents", type="primary", key="process_docs_mix"):
+            all_processed = True
+            with st.spinner("🔄 Processing selected documents..."):
+                for file_key in st.session_state.selected_documents_mix:
+                    file_info = all_documents[file_key]
+                    if not file_info.get('processed', False):
+                        if file_info['type'] == 'pdf':
+                            success, message = file_info['processor'].process_pdf(file_info['file'])
+                            if success:
+                                success, message = file_info['processor'].setup_rag_chain()
+                                if success:
+                                    file_info['processed'] = True
+                                else:
+                                    st.error(f"❌ Error processing {file_info['name']}: {message}")
+                                    all_processed = False
+                            else:
+                                st.error(f"❌ Error processing {file_info['name']}: {message}")
+                                all_processed = False
+                        elif file_info['type'] == 'csv':
+                            retriever, success, message = process_csv_file(file_info['file'])
+                            if success:
+                                file_info['retriever'] = retriever
+                                file_info['processed'] = True
+                            else:
+                                st.error(f"❌ Error processing {file_info['name']}: {message}")
+                                all_processed = False
+                        elif file_info['type'] == 'text':
+                            # For text files, we need to set up the RAG chain
+                            try:
+                                chain, vector_store, success, message = setup_rag_chain(
+                                    file_info['content'], 
+                                    f"text_{file_key}_{int(time.time())}"
+                                )
+                                if success:
+                                    file_info['chain'] = chain
+                                    file_info['vector_store'] = vector_store
+                                    file_info['processed'] = True
+                                else:
+                                    st.error(f"❌ Error processing {file_info['name']}: {message}")
+                                    all_processed = False
+                            except Exception as e:
+                                st.error(f"❌ Error processing {file_info['name']}: {str(e)}")
+                                all_processed = False
+            
+            if all_processed:
+                st.success("✅ All selected documents processed successfully!")
+        
+        # Mix analysis chat interface
+        if st.session_state.selected_documents_mix and all(
+            all_documents[file_key].get('processed', False)
+            for file_key in st.session_state.selected_documents_mix
+        ):
+            st.markdown("### 🔍 Document Mix Analysis Chat")
+            
+            # Add summary button
+            col1, col2, col3 = st.columns([1, 1, 2])
+            with col1:
+                if st.button("📝 Generate Summary", type="primary", key="generate_summary_btn"):
+                    with st.spinner("🔄 Generating comprehensive summary..."):
+                        try:
+                            # Generate a comprehensive summary of all documents
+                            summary_prompt = "Provide a comprehensive summary and comparison of the key themes, findings, and insights from all the analyzed documents. Focus on commonalities, differences, and how the documents complement each other."
+                            
+                            summary_responses = []
+                            document_details = []
+                            
+                            for file_key in st.session_state.selected_documents_mix:
+                                file_info = all_documents[file_key]
+                                file_type_icon = "📄" if file_info['type'] == 'pdf' else "📊" if file_info['type'] == 'csv' else "📝"
+                                
+                                try:
+                                    if file_info['type'] == 'pdf':
+                                        success, pdf_response, _ = file_info['processor'].get_response(summary_prompt)
+                                        if success:
+                                            summary_responses.append(f"**{file_type_icon} {file_info['tab_name']}**: {pdf_response}")
+                                            document_details.append({
+                                                'name': file_info['tab_name'],
+                                                'type': file_info['type'],
+                                                'icon': file_type_icon,
+                                                'content': pdf_response
+                                            })
+                                    elif file_info['type'] == 'csv':
+                                        retriever = file_info.get('retriever')
+                                        if retriever is not None:
+                                            docs = retriever.get_relevant_documents(summary_prompt)
+                                            if docs:
+                                                csv_response = "Based on the CSV data analysis: " + " ".join([doc.page_content for doc in docs[:3]])
+                                                summary_responses.append(f"**{file_type_icon} {file_info['tab_name']}**: {csv_response}")
+                                                document_details.append({
+                                                    'name': file_info['tab_name'],
+                                                    'type': file_info['type'],
+                                                    'icon': file_type_icon,
+                                                    'content': csv_response
+                                                })
+                                    elif file_info['type'] == 'text':
+                                        text_response = file_info['chain'].invoke(summary_prompt)
+                                        summary_responses.append(f"**{file_type_icon} {file_info['tab_name']}**: {text_response}")
+                                        document_details.append({
+                                            'name': file_info['tab_name'],
+                                            'type': file_info['type'],
+                                            'icon': file_type_icon,
+                                            'content': text_response
+                                        })
+                                except Exception as e:
+                                    summary_responses.append(f"**{file_type_icon} {file_info['tab_name']}**: Error generating summary - {str(e)}")
+                            
+                            # Create comprehensive summary
+                            summary_content = "## 📋 Comprehensive Document Comparison Summary\n\n"
+                            
+                            # Document overview
+                            summary_content += "### 📊 Document Overview\n\n"
+                            doc_types = {}
+                            for file_key in st.session_state.selected_documents_mix:
+                                file_info = all_documents[file_key]
+                                doc_type = file_info['type']
+                                doc_types[doc_type] = doc_types.get(doc_type, 0) + 1
+                            
+                            summary_content += f"- **Total Documents Analyzed**: {len(st.session_state.selected_documents_mix)}\n"
+                            summary_content += f"- **Document Types**: {', '.join([f'{count} {doc_type.upper()}' for doc_type, count in doc_types.items()])}\n"
+                            summary_content += f"- **Analysis Date**: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                            
+                            # Individual document summaries
+                            summary_content += "### 📝 Individual Document Summaries\n\n"
+                            for detail in document_details:
+                                summary_content += f"#### {detail['icon']} {detail['name']} ({detail['type'].upper()})\n"
+                                summary_content += f"{detail['content'][:300]}...\n\n"
+                            
+                            # Cross-document analysis
+                            summary_content += "### 🔍 Cross-Document Analysis\n\n"
+                            summary_content += "**Key Themes and Patterns:**\n\n"
+                            
+                            # Analyze common themes (simplified analysis)
+                            all_text = " ".join([detail['content'] for detail in document_details])
+                            common_words = ['data', 'analysis', 'research', 'findings', 'results', 'study', 'information', 'report']
+                            found_themes = [word for word in common_words if word.lower() in all_text.lower()]
+                            
+                            if found_themes:
+                                summary_content += f"- **Common Themes**: {', '.join(found_themes)}\n"
+                            
+                            summary_content += "- **Document Diversity**: Analysis spans multiple document types providing comprehensive coverage\n"
+                            summary_content += "- **Data Integration**: Combines structured (CSV) and unstructured (PDF/Text) data sources\n"
+                            summary_content += "- **Perspective Variety**: Multiple viewpoints and data sources enhance analysis reliability\n\n"
+                            
+                            # Comparative insights
+                            summary_content += "### 📈 Comparative Insights\n\n"
+                            summary_content += "**Strengths of Multi-Document Analysis:**\n"
+                            summary_content += "- **Comprehensive Coverage**: Multiple document types provide different perspectives\n"
+                            summary_content += "- **Data Validation**: Cross-referencing between documents enhances reliability\n"
+                            summary_content += "- **Rich Context**: Different document formats offer varied insights\n"
+                            summary_content += "- **Holistic Understanding**: Combined analysis reveals patterns not visible in individual documents\n\n"
+                            
+                            # Recommendations
+                            summary_content += "### 💡 Recommendations\n\n"
+                            summary_content += "**Based on the cross-document analysis:**\n"
+                            summary_content += "- Consider the complementary nature of different document types\n"
+                            summary_content += "- Use structured data (CSV) to validate insights from unstructured sources (PDF/Text)\n"
+                            summary_content += "- Leverage multiple perspectives for more robust conclusions\n"
+                            summary_content += "- Regular cross-document analysis can reveal emerging patterns and trends\n\n"
+                            
+                            # Store summary in session state
+                            if 'document_comparison_summary' not in st.session_state:
+                                st.session_state.document_comparison_summary = []
+                            st.session_state.document_comparison_summary.append({
+                                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                                'content': summary_content,
+                                'documents': [all_documents[key]['tab_name'] for key in st.session_state.selected_documents_mix]
+                            })
+                            
+                            st.success("✅ Comprehensive summary generated successfully!")
+                            
+                        except Exception as e:
+                            st.error(f"❌ Error generating summary: {str(e)}")
+            
+            with col2:
+                if st.button("🗑️ Clear Chat", type="secondary", key="clear_mix_chat"):
+                    st.session_state.general_mix_messages = []
+                    st.rerun()
+            
+            with col3:
+                if st.button("⚖️ Quick Comparison", type="secondary", key="quick_comparison_btn"):
+                    with st.spinner("🔄 Generating quick comparison..."):
+                        try:
+                            # Create a quick side-by-side comparison
+                            comparison_prompt = "Provide a brief overview of the main content and key points from this document."
+                            
+                            comparison_data = []
+                            
+                            for file_key in st.session_state.selected_documents_mix:
+                                file_info = all_documents[file_key]
+                                file_type_icon = "📄" if file_info['type'] == 'pdf' else "📊" if file_info['type'] == 'csv' else "📝"
+                                
+                                try:
+                                    if file_info['type'] == 'pdf':
+                                        success, pdf_response, _ = file_info['processor'].get_response(comparison_prompt)
+                                        if success:
+                                            comparison_data.append({
+                                                'name': file_info['tab_name'],
+                                                'type': file_info['type'],
+                                                'icon': file_type_icon,
+                                                'content': pdf_response[:200] + "..." if len(pdf_response) > 200 else pdf_response,
+                                                'filename': file_info['name']
+                                            })
+                                    elif file_info['type'] == 'csv':
+                                        retriever = file_info.get('retriever')
+                                        if retriever is not None:
+                                            docs = retriever.get_relevant_documents(comparison_prompt)
+                                            if docs:
+                                                csv_content = " ".join([doc.page_content for doc in docs[:2]])
+                                                comparison_data.append({
+                                                    'name': file_info['tab_name'],
+                                                    'type': file_info['type'],
+                                                    'icon': file_type_icon,
+                                                    'content': csv_content[:200] + "..." if len(csv_content) > 200 else csv_content,
+                                                    'filename': file_info['name']
+                                                })
+                                    elif file_info['type'] == 'text':
+                                        text_response = file_info['chain'].invoke(comparison_prompt)
+                                        comparison_data.append({
+                                            'name': file_info['tab_name'],
+                                            'type': file_info['type'],
+                                            'icon': file_type_icon,
+                                            'content': text_response[:200] + "..." if len(text_response) > 200 else text_response,
+                                            'filename': file_info['name']
+                                        })
+                                except Exception as e:
+                                    comparison_data.append({
+                                        'name': file_info['tab_name'],
+                                        'type': file_info['type'],
+                                        'icon': file_type_icon,
+                                        'content': f"Error generating comparison: {str(e)}",
+                                        'filename': file_info['name']
+                                    })
+                            
+                            # Display side-by-side comparison
+                            st.markdown("## ⚖️ Quick Document Comparison")
+                            
+                            # Create columns for side-by-side display
+                            cols = st.columns(len(comparison_data))
+                            for i, doc in enumerate(comparison_data):
+                                with cols[i]:
+                                    st.markdown(f"### {doc['icon']} {doc['name']}")
+                                    st.markdown(f"**Type**: {doc['type'].upper()}")
+                                    st.markdown(f"**File**: {doc['filename']}")
+                                    st.markdown("---")
+                                    st.markdown(doc['content'])
+                            
+                            # Add comparison insights
+                            st.markdown("### 🔍 Comparison Insights")
+                            
+                            # Count document types
+                            doc_types = {}
+                            for doc in comparison_data:
+                                doc_types[doc['type']] = doc_types.get(doc['type'], 0) + 1
+                            
+                            st.markdown(f"**Document Distribution**: {', '.join([f'{count} {doc_type.upper()}' for doc_type, count in doc_types.items()])}")
+                            
+                            # Key differences
+                            st.markdown("**Key Differences**:")
+                            if len(doc_types) > 1:
+                                st.markdown("- **Mixed Document Types**: Analysis combines different data formats for comprehensive insights")
+                                st.markdown("- **Perspective Variety**: Each document type provides unique viewpoints and information")
+                                st.markdown("- **Data Integration**: Structured and unstructured data complement each other")
+                            else:
+                                st.markdown("- **Consistent Format**: All documents share the same format, enabling direct comparison")
+                                st.markdown("- **Standardized Analysis**: Similar structure allows for systematic comparison")
+                            
+                            st.success("✅ Quick comparison generated successfully!")
+                            
+                        except Exception as e:
+                            st.error(f"❌ Error generating comparison: {str(e)}")
+            
+            # Display summary if available
+            if 'document_comparison_summary' in st.session_state and st.session_state.document_comparison_summary:
+                with st.expander("📋 View Generated Summaries", expanded=False):
+                    for i, summary in enumerate(st.session_state.document_comparison_summary):
+                        st.markdown(f"**Summary {i+1}** - {summary['timestamp']}")
+                        st.markdown(f"*Documents: {', '.join(summary['documents'])}*")
+                        st.markdown(summary['content'])
+                        if st.button(f"🗑️ Remove Summary {i+1}", key=f"remove_summary_{i}"):
+                            st.session_state.document_comparison_summary.pop(i)
+                            st.rerun()
+            
+            # Initialize messages in session state
+            if 'general_mix_messages' not in st.session_state:
+                st.session_state.general_mix_messages = []
+            
+            # Display chat messages
+            chat_container = st.container()
+            with chat_container:
+                for message in st.session_state.general_mix_messages:
+                    with st.chat_message(message["role"]):
+                        st.markdown(message["content"])
+            
+            # Chat input
+            if prompt := st.chat_input("Ask questions about your selected documents", key="general_mix_chat_input"):
+                st.session_state.general_mix_messages.append({"role": "user", "content": prompt})
+                
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+                
+                with st.chat_message("assistant"):
+                    with st.status("🔍 Analyzing across selected documents...", expanded=True) as status:
+                        try:
+                            # Individual document responses
+                            individual_responses = []
+                            document_summaries = []
+                            
+                            for file_key in st.session_state.selected_documents_mix:
+                                file_info = all_documents[file_key]
+                                file_type_icon = "📄" if file_info['type'] == 'pdf' else "📊" if file_info['type'] == 'csv' else "📝"
+                                
+                                try:
+                                    if file_info['type'] == 'pdf':
+                                        success, pdf_response, _ = file_info['processor'].get_response(prompt)
+                                        if success:
+                                            individual_responses.append(f"### {file_type_icon} {file_info['tab_name']} ({file_info['name']}):\n{pdf_response}")
+                                            document_summaries.append(f"- **{file_info['tab_name']}**: {pdf_response[:200]}...")
+                                        else:
+                                            individual_responses.append(f"### {file_type_icon} {file_info['tab_name']} ({file_info['name']}):\n❌ Error: {pdf_response}")
+                                    elif file_info['type'] == 'csv':
+                                        retriever = file_info.get('retriever')
+                                        if retriever is None:
+                                            individual_responses.append(f"### {file_type_icon} {file_info['tab_name']} ({file_info['name']}):\n❌ CSV retriever not initialized.")
+                                        else:
+                                            docs = retriever.get_relevant_documents(prompt)
+                                            if docs:
+                                                csv_response = "Based on the CSV data:\n\n"
+                                                for doc in docs:
+                                                    csv_response += f"- {doc.page_content}\n"
+                                                individual_responses.append(f"### {file_type_icon} {file_info['tab_name']} ({file_info['name']}):\n{csv_response}")
+                                                document_summaries.append(f"- **{file_info['tab_name']}**: {csv_response[:200]}...")
+                                            else:
+                                                individual_responses.append(f"### {file_type_icon} {file_info['tab_name']} ({file_info['name']}):\nNo relevant data found.")
+                                    elif file_info['type'] == 'text':
+                                        try:
+                                            start_time = time.time()
+                                            text_response = file_info['chain'].invoke(prompt)
+                                            end_time = time.time()
+                                            processing_time = round(end_time - start_time, 2)
+                                            individual_responses.append(f"### {file_type_icon} {file_info['tab_name']} ({file_info['name']}):\n{text_response}")
+                                            document_summaries.append(f"- **{file_info['tab_name']}**: {text_response[:200]}...")
+                                        except Exception as e:
+                                            individual_responses.append(f"### {file_type_icon} {file_info['tab_name']} ({file_info['name']}):\n❌ Error: {str(e)}")
+                                except Exception as e:
+                                    individual_responses.append(f"### {file_type_icon} {file_info['tab_name']} ({file_info['name']}):\n❌ Error: {str(e)}")
+                            
+                            # Create comprehensive response
+                            response = "## 📊 Document Mix Analysis Results\n\n"
+                            response += "### 📋 Individual Document Responses:\n\n"
+                            response += "\n\n".join(individual_responses)
+                            
+                            # Add summary section
+                            if document_summaries:
+                                response += "\n\n### 📝 Summary:\n\n"
+                                response += "**Key findings across all documents:**\n\n"
+                                response += "\n".join(document_summaries)
+                                
+                                # Add cross-document insights
+                                response += "\n\n**🔍 Cross-Document Insights:**\n\n"
+                                response += "Based on the analysis of multiple documents, here are the key insights:\n\n"
+                                
+                                # Count document types
+                                doc_types = {}
+                                for file_key in st.session_state.selected_documents_mix:
+                                    file_info = all_documents[file_key]
+                                    doc_type = file_info['type']
+                                    doc_types[doc_type] = doc_types.get(doc_type, 0) + 1
+                                
+                                response += f"- **Document Types Analyzed**: {', '.join([f'{count} {doc_type.upper()}' for doc_type, count in doc_types.items()])}\n"
+                                response += f"- **Total Documents**: {len(st.session_state.selected_documents_mix)}\n"
+                                response += "- **Analysis Scope**: Cross-document comparison and synthesis\n\n"
+                                
+                                response += "The analysis provides insights from multiple perspectives, allowing for comprehensive understanding across different document types and sources."
+                            
+                            status.update(label="✅ Analysis complete", state="complete")
+                            st.markdown(response)
+                            st.session_state.general_mix_messages.append({"role": "assistant", "content": response})
+                        except Exception as e:
+                            st.error(f"❌ Error during analysis: {str(e)}")
+    else:
+        st.info("📋 Please select at least one document to start analysis.")
 
 # Sidebar Navigation
 with st.sidebar:
@@ -1198,7 +1660,12 @@ elif st.session_state.current_page == 'text_speech':
     st.markdown('<h2 class="section-header">🔊 Text Speech Interface</h2>', unsafe_allow_html=True)
     
     # Create tabs for speech functionality
-    speech_tab1, speech_tab2, speech_tab3 = st.tabs(["🎤 Speech to Text", "🔊 Text to Speech", "🎙️ Meeting Transcriber"])
+    speech_tab1, speech_tab2, speech_tab3, speech_tab4 = st.tabs([
+        "🎤 Speech to Text",
+        "🔊 Text to Speech",
+        "🎙️ Meeting Transcriber",
+        "🌐 Speech Translator"
+    ])
     
     with speech_tab1:
         create_speech_to_text_interface()
@@ -1208,6 +1675,9 @@ elif st.session_state.current_page == 'text_speech':
         
     with speech_tab3:
         create_meeting_transcriber_interface()
+        
+    with speech_tab4:
+        create_speech_translator_interface()
 
 # Footer
 st.markdown("---")
@@ -1216,4 +1686,5 @@ st.markdown("- Use the **🤖 GPT Chat Assistant** for general questions and con
 st.markdown("- Upload multiple files to create individual chat sessions for each file")
 st.markdown("- Add custom text content for personalized conversations")
 st.markdown("- Mix Analysis tabs appear when you have 2+ files of the same type")
+st.markdown("- **Document Mix Analysis** allows cross-document analysis with any combination of file types")
 st.markdown("- Each file maintains its own separate chat history")
